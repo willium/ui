@@ -41,6 +41,8 @@ export interface Entry {
   /** From `debounce`: how many milliseconds a fetch for changed args waits. */
   readonly debounce: number | undefined
   readonly dropPrevious: boolean
+  /** From `interruptPrevious`: changed args interrupt the old args' fetch, as with `debounce`. */
+  readonly interruptPrevious: boolean
   readonly onChange: ((...args: Array<any>) => unknown) | undefined
   readonly restore: false | undefined
 }
@@ -69,6 +71,7 @@ export interface Marker {
   /** Set for one key of a keyed query: its values are collected into the query's result. */
   readonly keyed: boolean
   readonly debounce: number | undefined
+  readonly interruptPrevious: boolean
 }
 
 /**
@@ -253,6 +256,7 @@ const parse = (component: string, queries: unknown): ReadonlyArray<Entry> => {
       args,
       debounce,
       dropPrevious,
+      interruptPrevious,
       query,
       queryMany,
       onChange,
@@ -292,6 +296,7 @@ const parse = (component: string, queries: unknown): ReadonlyArray<Entry> => {
         ? undefined
         : Duration.toMillis(debounce as Duration.Input),
       dropPrevious: dropPrevious === true,
+      interruptPrevious: interruptPrevious === true,
       onChange: onChange as Entry["onChange"],
       restore
     }
@@ -514,7 +519,8 @@ export const bind = (
           args,
           argsKey,
           keyed,
-          debounce: entry.debounce
+          debounce: entry.debounce,
+          interruptPrevious: entry.interruptPrevious
         }
         return {
           [Subscription.TypeId]: Subscription.TypeId,

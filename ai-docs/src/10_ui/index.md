@@ -517,6 +517,14 @@ Without a stored Success, the result is `Initial`; a disabled query is
 Set `dropPrevious: true` on the entry to show `Initial` instead when old
 results would mislead.
 
+The fetch for the old args runs on and fills the cache, unless the entry has
+a `debounce` or `interruptPrevious: true`. Then changed args interrupt it,
+unless another watcher, a `get` or a prefetch still needs it, and a fetcher
+built on `Effect.tryPromise` sees its `AbortSignal` abort. Set
+`interruptPrevious: true` when args change faster than fetches finish, as
+with a brush or a slider, so each change doesn't leave a fetch running for
+args nobody shows.
+
 The cache never retries a failed fetch: a fetcher that should retry does so
 itself.
 

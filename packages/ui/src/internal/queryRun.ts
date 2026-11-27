@@ -273,7 +273,10 @@ const watch = (
   for (const [key, running] of watches) {
     if (markers.has(key)) continue
     watches.delete(key)
-    releaseWatch(running, running.marker.debounce !== undefined)
+    releaseWatch(
+      running,
+      running.marker.debounce !== undefined || running.marker.interruptPrevious
+    )
     if (running.marker.keyed) {
       const run = state.keyed.get(running.marker.name)
       run?.values.delete(running.marker.argsKey!)
