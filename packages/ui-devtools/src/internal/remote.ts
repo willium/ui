@@ -27,134 +27,187 @@ type Json = Schema.Json
 const isObject = (value: unknown): value is Record<string, Json> =>
   typeof value === "object" && value !== null && !Array.isArray(value)
 
-const tagOf = (schema: Json, definitions: Record<string, Json>): unknown => {
-  const resolved = isObject(schema) && typeof schema.$ref === "string"
+const resolve = (
+  schema: Json | undefined,
+  definitions: Record<string, Json>
+): Json | undefined =>
+  isObject(schema) && typeof schema.$ref === "string"
     ? definitions[schema.$ref.slice(schema.$ref.lastIndexOf("/") + 1)]
     : schema
-  const tag = isObject(resolved) && isObject(resolved.properties)
-    ? resolved.properties._tag
-    : undefined
-  return isObject(tag)
-    ? tag.const ??
-      (Array.isArray(tag.enum) && tag.enum.length === 1
-        ? tag.enum[0]
+
+const literalOf = (schema: Json | undefined): unknown =>
+  isObject(schema)
+    ? schema.const ??
+      (Array.isArray(schema.enum) && schema.enum.length === 1
+        ? schema.enum[0]
         : undefined)
+    : undefined
+
+const tagOf = (schema: Json, definitions: Record<string, Json>): unknown => {
+  const resolved = resolve(schema, definitions)
+  return isObject(resolved) && isObject(resolved.properties)
+    ? literalOf(resolved.properties._tag)
     : undefined
 }
 
 // Bounds the padding for minLength and the items for minItems.
 const most = 64
 
+const placeholder: Json = Object.freeze({ "~redacted": true })
+
+const holdsPlaceholder = (value: Json): boolean =>
+  value === placeholder ||
+  (typeof value === "object" && value !== null &&
+    Object.values(value).some(holdsPlaceholder))
+
+// The redacting codec's encoding of a `Schema.Redacted`.
+const isPlaceholderSchema = (schema: Json | undefined): boolean =>
+  isObject(schema) && isObject(schema.properties) &&
+  Object.keys(schema.properties).length === 1 &&
+  literalOf(schema.properties["~redacted"]) === true
+
+const at = (schema: Json | undefined, key: string): Json | undefined =>
+  isObject(schema) ? schema[key] : undefined
+
+const nth = (list: Json | undefined, i: number): Json | undefined =>
+  Array.isArray(list) ? list[i] : undefined
+
+interface Document {
+  readonly schema: Json
+  readonly definitions: Record<string, Json>
+}
+
 /**
  * A value for a JSON Schema, or `undefined` when none is found: a constant,
  * an example, or the smallest value of its type, preferring the first union
  * member that has one and one item in an array. A `$ref` already being
  * walked has none, so a recursive type stops at an empty array or a `None`.
+ *
+ * `redacted` is the same node in the redacting codec's document. The walk
+ * follows it alongside and puts `placeholder` where it has a
+ * `Schema.Redacted`, so the value is the plain one with the placeholders in.
  */
 const exampleOf = (
-  schema: Json,
+  root: Json,
   definitions: Record<string, Json>,
-  open: Set<string> = new Set()
+  redacted?: Document
 ): Json | undefined => {
-  if (schema === true) return null
-  if (!isObject(schema)) return undefined
-  if (typeof schema.$ref === "string") {
-    const name = schema.$ref.slice(schema.$ref.lastIndexOf("/") + 1)
-    if (open.has(name) || definitions[name] === undefined) return undefined
-    open.add(name)
-    const out = exampleOf(definitions[name], definitions, open)
-    open.delete(name)
-    return out
-  }
-  if ("const" in schema) return schema.const
-  if (Array.isArray(schema.enum)) return schema.enum[0]
-  if (Array.isArray(schema.examples) && schema.examples.length > 0) {
-    return schema.examples[0]
-  }
-  if ("default" in schema) return schema.default
-  const members = schema.anyOf ?? schema.oneOf
-  if (Array.isArray(members)) {
-    for (const member of members) {
-      const out = exampleOf(member, definitions, open)
-      if (out !== undefined) return out
+  const open = new Set<string>()
+  const walk = (schema: Json, shadow: Json | undefined): Json | undefined => {
+    if (redacted !== undefined) shadow = resolve(shadow, redacted.definitions)
+    if (
+      isPlaceholderSchema(shadow) &&
+      JSON.stringify(schema) !== JSON.stringify(shadow)
+    ) {
+      return walk(schema, undefined) === undefined ? undefined : placeholder
     }
-    return undefined
-  }
-  if (Array.isArray(schema.allOf)) {
-    const { allOf, ...rest } = schema
-    return exampleOf(Object.assign(rest, ...allOf), definitions, open)
-  }
-  if (isObject(schema.not)) return undefined
-  const number = (key: string) =>
-    typeof schema[key] === "number" ? schema[key] : undefined
-  const type = Array.isArray(schema.type) ? schema.type[0] : schema.type
-  switch (type) {
-    case "string":
-      return "a".repeat(Math.min(number("minLength") ?? 0, most))
-    case "number":
-    case "integer": {
-      let out = Math.max(0, number("minimum") ?? -Infinity)
-      const above = number("exclusiveMinimum")
-      if (above !== undefined && out <= above) out = above + 1
-      out = Math.min(out, number("maximum") ?? Infinity)
-      const below = number("exclusiveMaximum")
-      if (below !== undefined && out >= below) out = below - 1
+    if (schema === true) return null
+    if (!isObject(schema)) return undefined
+    if (typeof schema.$ref === "string") {
+      const name = schema.$ref.slice(schema.$ref.lastIndexOf("/") + 1)
+      if (open.has(name) || definitions[name] === undefined) return undefined
+      open.add(name)
+      const out = walk(definitions[name], shadow)
+      open.delete(name)
       return out
     }
-    case "boolean":
-      return false
-    case "null":
-      return null
-    case "array": {
-      const out: Array<Json> = []
-      for (
-        const item of Array.isArray(schema.prefixItems)
+    if ("const" in schema) return schema.const
+    if (Array.isArray(schema.enum)) return schema.enum[0]
+    if (Array.isArray(schema.examples) && schema.examples.length > 0) {
+      return schema.examples[0]
+    }
+    if ("default" in schema) return schema.default
+    const members = schema.anyOf ?? schema.oneOf
+    if (Array.isArray(members)) {
+      const shadows = at(shadow, "anyOf") ?? at(shadow, "oneOf")
+      for (let i = 0; i < members.length; i++) {
+        const out = walk(members[i], nth(shadows, i))
+        if (out !== undefined) return out
+      }
+      return undefined
+    }
+    if (Array.isArray(schema.allOf)) {
+      const merge = (node: Json | undefined) => {
+        if (!isObject(node) || !Array.isArray(node.allOf)) return node
+        const { allOf, ...rest } = node
+        return Object.assign(rest, ...allOf)
+      }
+      return walk(merge(schema)!, merge(shadow))
+    }
+    if (isObject(schema.not)) return undefined
+    const number = (key: string) =>
+      typeof schema[key] === "number" ? schema[key] : undefined
+    const type = Array.isArray(schema.type) ? schema.type[0] : schema.type
+    switch (type) {
+      case "string":
+        return "a".repeat(Math.min(number("minLength") ?? 0, most))
+      case "number":
+      case "integer": {
+        let out = Math.max(0, number("minimum") ?? -Infinity)
+        const above = number("exclusiveMinimum")
+        if (above !== undefined && out <= above) out = above + 1
+        out = Math.min(out, number("maximum") ?? Infinity)
+        const below = number("exclusiveMaximum")
+        if (below !== undefined && out >= below) out = below - 1
+        return out
+      }
+      case "boolean":
+        return false
+      case "null":
+        return null
+      case "array": {
+        const out: Array<Json> = []
+        const prefix = Array.isArray(schema.prefixItems)
           ? schema.prefixItems
           : []
-      ) {
-        const value = exampleOf(item, definitions, open)
-        if (value === undefined) return undefined
-        out.push(value)
+        for (let i = 0; i < prefix.length; i++) {
+          const value = walk(prefix[i], nth(at(shadow, "prefixItems"), i))
+          if (value === undefined) return undefined
+          out.push(value)
+        }
+        const minItems = number("minItems") ?? 0
+        // Past the cap the decoder reports the length, not this walk.
+        const length = Math.min(
+          Math.max(out.length + 1, minItems),
+          number("maxItems") ?? Infinity,
+          out.length + most
+        )
+        const item = schema.items === undefined ? true : schema.items
+        while (out.length < length) {
+          const value = walk(item, at(shadow, "items"))
+          if (value === undefined) {
+            return out.length < minItems ? undefined : out
+          }
+          out.push(value)
+        }
+        return out
       }
-      const length = Math.min(
-        Math.max(out.length + 1, number("minItems") ?? 0),
-        number("maxItems") ?? Infinity,
-        out.length + most
-      )
-      const item = schema.items === undefined ? true : schema.items
-      while (out.length < length) {
-        const value = exampleOf(item, definitions, open)
-        if (value === undefined) break
-        out.push(value)
+      case "object": {
+        const out: Record<string, Json> = {}
+        const required = Array.isArray(schema.required) ? schema.required : []
+        const properties = isObject(schema.properties) ? schema.properties : {}
+        for (const key of Object.keys(properties)) {
+          const value = walk(properties[key], at(at(shadow, "properties"), key))
+          if (value !== undefined) out[key] = value
+          else if (required.includes(key)) return undefined
+        }
+        if (
+          Object.keys(properties).length === 0 &&
+          isObject(schema.additionalProperties)
+        ) {
+          const value = walk(
+            schema.additionalProperties,
+            at(shadow, "additionalProperties")
+          )
+          if (value !== undefined) out.key = value
+        }
+        return out
       }
-      return out.length < (number("minItems") ?? 0) ? undefined : out
+      default:
+        return null
     }
-    case "object": {
-      const out: Record<string, Json> = {}
-      const required = Array.isArray(schema.required) ? schema.required : []
-      const properties = isObject(schema.properties) ? schema.properties : {}
-      for (const key of Object.keys(properties)) {
-        const value = exampleOf(properties[key], definitions, open)
-        if (value !== undefined) out[key] = value
-        else if (required.includes(key)) return undefined
-      }
-      if (
-        Object.keys(properties).length === 0 &&
-        isObject(schema.additionalProperties)
-      ) {
-        const value = exampleOf(schema.additionalProperties, definitions, open)
-        if (value !== undefined) out.key = value
-      }
-      return out
-    }
-    default:
-      return null
   }
-}
-
-interface Document {
-  readonly schema: Json
-  readonly definitions: Record<string, Json>
+  return walk(root, redacted?.schema)
 }
 
 const documentOf = (schema: Schema.Top): Document =>
@@ -162,10 +215,12 @@ const documentOf = (schema: Schema.Top): Document =>
     Schema.toCodecJson(schema)
   ) as unknown as Document
 
-const membersOf = (document: Document): ReadonlyArray<Json> =>
-  isObject(document.schema) && Array.isArray(document.schema.anyOf)
-    ? document.schema.anyOf
+const membersOf = (document: Document): ReadonlyArray<Json> => {
+  const root = resolve(document.schema, document.definitions)
+  return isObject(root) && Array.isArray(root.anyOf)
+    ? root.anyOf
     : [document.schema]
+}
 
 const messageSchema = (
   schema: Schema.Top,
@@ -186,6 +241,7 @@ const messageSchema = (
     const redacted = redactedSchema === schema
       ? undefined
       : documentOf(redactedSchema)
+    const redactedMembers = redacted === undefined ? [] : membersOf(redacted)
     const decode = Schema.decodeUnknownEffect(
       Schema.toCodecJson(schema as Schema.Codec<unknown>)
     )
@@ -198,11 +254,12 @@ const messageSchema = (
         })
       }
       // The JSON Schema doesn't show a Schema.Redacted, the redacting one does.
-      const shown = redacted === undefined
-        ? undefined
-        : exampleOf(membersOf(redacted)[i], redacted.definitions)
-      const entry = shown !== undefined &&
-          JSON.stringify(shown) !== JSON.stringify(message)
+      const shown = redacted === undefined ? message : exampleOf(
+        members[i],
+        document.definitions,
+        { schema: redactedMembers[i], definitions: redacted.definitions }
+      )!
+      const entry = holdsPlaceholder(shown)
         ? { message: shown, redacted: true }
         : { message }
       return Effect.match(decode(message, { errors: "all" }), {

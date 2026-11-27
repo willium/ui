@@ -751,8 +751,12 @@ describe("DevToolsServer", { concurrent: false }, () => {
             token: Schema.Redacted(Schema.String),
             email: Schema.String.check(Schema.isPattern(/^\S+@\S+$/))
           },
-          Impossible: { never: Schema.Never }
-        })
+          Impossible: { never: Schema.Never },
+          Unset: { secret: Schema.Option(Schema.Redacted(Schema.Never)) },
+          Listed: {
+            items: Schema.Array(Schema.String).check(Schema.isMinLength(65))
+          }
+        }).annotate({ identifier: "SampleMessage" })
         const Sample = Html.component({
           name: "Sample",
           model: Schema.Struct({ count: Schema.Number }),
@@ -778,10 +782,17 @@ describe("DevToolsServer", { concurrent: false }, () => {
         )
         const all = yield* agent.call("get_message_schema", { instance })
         assert.isArray(all.examples)
-        assert.strictEqual(all.examples.length, 5)
+        assert.strictEqual(all.examples.length, 7)
 
-        const [selected, savedToken, setEmail, savedCredential, impossible] =
-          all.examples
+        const [
+          selected,
+          savedToken,
+          setEmail,
+          savedCredential,
+          impossible,
+          unset,
+          listed
+        ] = all.examples
 
         assert.deepStrictEqual(selected, {
           message: {
@@ -833,6 +844,13 @@ describe("DevToolsServer", { concurrent: false }, () => {
         assert.isUndefined(impossible.message)
         assert.isString(impossible.invalid)
         assert.isAbove(impossible.invalid.length, 0)
+
+        assert.deepStrictEqual(unset, {
+          message: { _tag: "Unset", secret: { _tag: "None" } }
+        })
+
+        assert.strictEqual(listed.message.items.length, 64)
+        assert.include(listed.invalid, "items")
       }).pipe(Effect.scoped),
     30_000
   )
