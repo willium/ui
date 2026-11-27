@@ -6,7 +6,8 @@ import { Effect, Layer, Schema } from "effect"
 import { HttpRouter } from "effect/http"
 import { App, AppRoute, People } from "./fixtures/routed.ts"
 
-describe("HtmlServerHttp.layerHttp", () => {
+// Sequential: the base test sets the base of the shared `AppRoute`.
+describe("HtmlServerHttp.layerHttp", { concurrent: false }, () => {
   const request = async (
     pages: Layer.Layer<never, never, HttpRouter.HttpRouter>,
     path: string
@@ -170,5 +171,16 @@ describe("HtmlServerHttp.layerHttp", () => {
     const trailing = await request(docs, "/docs/people/1/")
     assert.strictEqual(trailing.status, 301)
     assert.strictEqual(trailing.headers.get("location"), "/docs/people/1")
+
+    // A reloaded dev entry is built before the one it replaces is disposed.
+    const [first, second] = [docs, docs].map((layer) =>
+      HttpRouter.toWebHandler(layer, { disableLogger: true })
+    )
+    await first!.handler(new Request("http://localhost/docs/"))
+    await second!.handler(new Request("http://localhost/docs/"))
+    await first!.dispose()
+    assert.strictEqual(AppRoute.base(), "/docs/")
+    await second!.dispose()
+    assert.strictEqual(AppRoute.base(), "")
   })
 })

@@ -1056,10 +1056,7 @@ describe("BrowserRouter", { concurrent: false }, () => {
       expect(Option.getOrThrow(AppRoute.parse("#/people/3"))._tag).toBe(
         "Person"
       )
-    }).pipe(
-      Effect.scoped,
-      Effect.ensuring(Effect.sync(() => AppRoute.setBase("")))
-    ))
+    }).pipe(Effect.scoped))
 
   it.effect("restores the union's previous base when its Scope closes", () =>
     Effect.gen(function*() {

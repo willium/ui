@@ -38,8 +38,11 @@
  *
  * Templates are relative to the union's base path, which a Router Layer sets
  * at startup. `parse` only accepts URLs under the base and `print` adds it
- * back, so printed links are always absolute. The base `"#"` puts the URL in
- * the fragment, as `"#/people/1"`, for static hosting.
+ * back, so printed links are always absolute. A trailing slash on the base is
+ * kept for Home only: under `"/docs/"` Home prints as `"/docs/"`, and under
+ * `"/en"` as `"/en"`. A relative or full-URL base, such as Vite's `"./"`,
+ * keeps the routes at the root. The base `"#"` puts the URL in the fragment,
+ * as `"#/people/1"`, for static hosting.
  *
  * **Example** (A route table)
  *
@@ -298,9 +301,9 @@ export declare namespace Union {
     readonly subset: <const Tags extends keyof Routes & string>(
       tags: ReadonlyArray<Tags>
     ) => Union<{ readonly [K in Tags]: Routes[K] }>
-    /** The base path, `""` or a path such as `"/en"`. */
+    /** The base path: `""`, `"#"` or a path such as `"/en"` or `"/docs/"`. */
     readonly base: () => string
-    /** Sets the base path. Router Layers call it at startup. */
+    /** Sets the base path. Router and server Layers call it when built. */
     readonly setBase: (base: string) => void
   }
 
@@ -538,12 +541,16 @@ const printSearch = (search: unknown): string => {
   return parts.length === 0 ? "" : `?${parts.join("&")}`
 }
 
+/** A relative or full-URL base, as Vite allows, keeps the routes at the root. */
 const normaliseBase = (base: string): string => {
-  if (base === "" || base === "/") return ""
+  if (base === "/" || /^(\.|\/\/|[a-z][a-z\d+.-]*:|$)/i.test(base)) return ""
   if (base.startsWith("#")) return "#"
-  const withSlash = base.startsWith("/") ? base : `/${base}`
-  return withSlash.endsWith("/") ? withSlash.slice(0, -1) : withSlash
+  return base.startsWith("/") ? base : `/${base}`
 }
+
+/** The base without its trailing slash, which only Home keeps. */
+const prefixOf = (base: string): string =>
+  base.endsWith("/") ? base.slice(0, -1) : base
 
 // ---------------------------------------------------------------------------
 // Unions
@@ -781,9 +788,10 @@ const build = (
       ).filter((part, index, all) =>
         !(part === "" && index === all.length - 1 && index > 0)
       ).join("/")
-      return baseRef.value === "#"
-        ? `#/${path}`
-        : `${baseRef.value}/${path}`.replace(/(.)\/$/, "$1")
+      const base = baseRef.value
+      if (base === "#") return `#/${path}`
+      if (path === "") return base === "" ? "/" : base
+      return `${prefixOf(base)}/${path}`.replace(/\/$/, "")
     }
     searchPrinters[tag] = (value) => {
       const encoded = encodeSearch(value.search ?? {}) as Record<
@@ -824,9 +832,15 @@ const build = (
     let path = searchAt < 0 ? withoutHash : withoutHash.slice(0, searchAt)
     const searchString = searchAt < 0 ? "" : withoutHash.slice(searchAt + 1)
     const base = inFragment ? "" : baseRef.value
-    if (base !== "") {
-      if (path !== base && !path.startsWith(`${base}/`)) return Option.none()
-      path = path.slice(base.length)
+    const prefix = prefixOf(base)
+    // Home is canonical with the base's trailing slash, or without when it has none.
+    let homeRedirected = false
+    if (prefix !== "") {
+      if (path !== prefix && !path.startsWith(`${prefix}/`)) {
+        return Option.none()
+      }
+      path = path.slice(prefix.length)
+      homeRedirected = path !== base.slice(prefix.length)
     }
     if (!path.startsWith("/")) path = `/${path}`
     const trimmed = path.length > 1 && path.endsWith("/")
@@ -878,7 +892,8 @@ const build = (
           params: params.value,
           search: decodedSearch.value.value
         },
-        redirected: trimmed !== path,
+        redirected: trimmed !== path ||
+          (trimmed === "/" && homeRedirected),
         notFound: route.tag === notFound,
         invalid: decodedSearch.value.invalid
       })

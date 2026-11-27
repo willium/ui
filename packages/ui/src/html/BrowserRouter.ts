@@ -90,6 +90,7 @@ import * as Effect from "effect/Effect"
 import type * as Fiber from "effect/Fiber"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
+import * as base from "../internal/base.ts"
 import * as services from "../internal/services.ts"
 import { decodeComponent } from "../internal/url.ts"
 import type * as Route from "../Route.ts"
@@ -118,7 +119,8 @@ const replaceInterval = "200 millis"
 export interface Options {
   readonly routes: Route.AnyUnion
   /**
-   * The base path the routes are relative to. A string is used as it is. A
+   * The base path the routes are relative to, set while the Layer is built.
+   * A string is used as it is, such as Vite's `import.meta.env.BASE_URL`. A
    * function is given the first segment of the URL's path at startup and
    * says whether it's the base, as with an i18n prefix like `/en`.
    */
@@ -205,14 +207,15 @@ const make = (
     const location = window.location
     const history = window.history
 
-    if (inFragment) routes.setBase("#")
-    else if (typeof options.base === "string") routes.setBase(options.base)
-    else if (options.base !== undefined) {
-      const segment = location.pathname.split("/")[1] ?? ""
-      routes.setBase(
-        segment !== "" && options.base(segment) ? `/${segment}` : ""
-      )
-    } else routes.setBase("")
+    const segment = location.pathname.split("/")[1] ?? ""
+    yield* base.scoped(
+      routes,
+      inFragment
+        ? "#"
+        : typeof options.base === "function"
+        ? segment !== "" && options.base(segment) ? `/${segment}` : ""
+        : options.base ?? ""
+    )
 
     /** `url.hash`, but `"#"` for a bare `#`, which `hash` reports as `""`. */
     const hashOf = (url: URL | Location) =>

@@ -24,10 +24,15 @@
  * for a path ending in `/`, and a 404 to `404.html`. Any other status
  * fails the build. The server build isn't kept.
  *
- * **Gotchas**
+ * Under a Vite `base` such as `"/docs/"`, the server entry gets the URLs
+ * the browser sends, with the base, so pass `import.meta.env.BASE_URL` as
+ * the `base` of `layerHttp` and `BrowserRouter.layer`. `prerender` paths
+ * are relative to the base: `"/about"` is requested as `"/docs/about"` and
+ * written to `about.html`. They're read before the entry's Layer is built,
+ * so routes printed for them don't carry the base yet. A relative or
+ * full-URL `base` keeps the routes at the root.
  *
- * Only a root `base` is supported. Vite prefixes the asset URLs with
- * `base`, but the app's routes and the links it renders don't carry it.
+ * **Gotchas**
  *
  * `vite build --watch` isn't supported and fails before building. Use
  * `vite dev` to rebuild on changes.
@@ -43,7 +48,7 @@
  * // src/entry.server.ts:
  * //
  * // import { document } from "virtual:@effect/ui/document"
- * // export default layerHttp(App, { routes: AppRoute, document, static: import.meta.env.PROD })
+ * // export default layerHttp(App, { routes: AppRoute, document, base: import.meta.env.BASE_URL, static: import.meta.env.PROD })
  * // export const prerender = [AppRoute.print(AppRoute.Home())]
  * ```
  *
@@ -130,6 +135,7 @@ interface DevServer {
 
 interface Environment {
   readonly config: {
+    readonly base: string
     readonly root: string
     readonly cacheDir: string
     readonly build: { readonly outDir: string; readonly watch?: unknown }
@@ -205,7 +211,10 @@ export const plugin = (options: Options): Plugin => {
           `import * as entry from ${JSON.stringify(options.entry)}`,
           `import { isEffect, runPromise } from "effect/Effect"`,
           `import { toWebHandler } from "effect/http/HttpRouter"`,
-          `export const { handler, dispose } = toWebHandler(entry.default, { disableLogger: true })`,
+          // Built on the first request, so `prerender` is evaluated before the entry's Layer sets a base.
+          `let web`,
+          `export const handler = (request) => (web ??= toWebHandler(entry.default, { disableLogger: true })).handler(request)`,
+          `export const dispose = async () => web?.dispose()`,
           `export const prerender = async () => isEffect(entry.prerender) ? runPromise(entry.prerender) : entry.prerender ?? []`
         ].join("\n")
       }
@@ -340,6 +349,10 @@ export const plugin = (options: Options): Plugin => {
       }
       const { cacheDir, root } = ssr.config
       const outDir = path.resolve(root, client.config.build.outDir)
+      // Like `Route`, a relative or full-URL base keeps the pages at the root.
+      const base = client.config.base.startsWith("/")
+        ? client.config.base.replace(/\/$/, "")
+        : ""
       await builder.build(client)
       templateFile = path.join(outDir, "index.html")
       const output = (await builder.build(ssr)) as {
@@ -363,7 +376,9 @@ export const plugin = (options: Options): Plugin => {
           const results = await Promise.allSettled(
             (await module.prerender()).map(async (url) => {
               const target = new URL(url, origin)
-              const response = await module.handler(new Request(target))
+              const request = new URL(target)
+              request.pathname = base + target.pathname
+              const response = await module.handler(new Request(request))
               await write(
                 outDir,
                 fileName(target.pathname, response.status),
@@ -432,7 +447,12 @@ const toRequest = (
   const method = request.method ?? "GET"
   const protocol = "encrypted" in request.socket ? "https" : "http"
   return new Request(
-    new URL(request.url ?? "/", `${protocol}://${request.headers.host}`),
+    // Vite strips its `base` from `url`, and the entry matches with it.
+    new URL(
+      (request as { readonly originalUrl?: string }).originalUrl ??
+        request.url ?? "/",
+      `${protocol}://${request.headers.host}`
+    ),
     {
       method,
       headers,

@@ -19,6 +19,7 @@ import type * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import * as Scope from "effect/Scope"
 import type * as Component from "../Component.ts"
+import * as base from "../internal/base.ts"
 import { canonical } from "../internal/url.ts"
 import * as Router from "../Router.ts"
 import type * as View from "../View.ts"
@@ -37,6 +38,10 @@ import * as HtmlServer from "./HtmlServer.ts"
  * once with the server.
  *
  * **Details**
+ *
+ * While the Layer is built, the routes' base is `base`. URLs are matched
+ * with it, as the browser sends them, and links are printed with it. The
+ * previous base is restored when the Layer's Scope closes.
  *
  * Per request it resolves the URL with `routes`. A URL that doesn't resolve
  * is a 404, and a redirected or normalised one is a 301 to
@@ -135,6 +140,12 @@ export const layerHttp = <
     & BrowserHost.HtmlRoot<V>,
   options: {
     readonly routes: U
+    /**
+     * The base path the routes are relative to, as in `BrowserRouter.layer`,
+     * such as Vite's `import.meta.env.BASE_URL`. Defaults to the routes'
+     * base. It's set while the Layer is built.
+     */
+    readonly base?: string | undefined
     readonly document: (rendered: HtmlServer.Rendered<Model>) => string
     readonly budget?: Duration.Input | undefined
     readonly static?: boolean | undefined
@@ -148,6 +159,9 @@ export const layerHttp = <
   HttpRouter.HttpRouter | Exclude<R, Html.Host | Router.Services>
 > =>
   HttpRouter.use(Effect.fnUntraced(function*(router) {
+    if (options.base !== undefined) {
+      yield* base.scoped(options.routes, options.base)
+    }
     const services = Context.omit(Scope.Scope)(
       yield* Effect.context<Exclude<R, Html.Host | Router.Services>>()
     )
