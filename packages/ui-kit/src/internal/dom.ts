@@ -1,6 +1,48 @@
 export const isElement = (node: unknown): node is Element =>
   (node as Node | null)?.nodeType === 1
 
+export const rootOf = (node: Node): Document | ShadowRoot =>
+  node.isConnected
+    ? node.getRootNode() as Document | ShadowRoot
+    : node.ownerDocument ?? node as Document
+
+// In a shadow root, focus outside it leaves its `activeElement` null.
+export const focusedOf = (node: Node): Element | null =>
+  rootOf(node).activeElement ?? node.ownerDocument?.activeElement ?? null
+
+// Listens in `node`'s tree and each tree above it, as a listener outside a
+// shadow root sees its host as the target. Each event reaches `handler` once,
+// with the target its innermost tree shows.
+export const listenTrees = <K extends keyof DocumentEventMap>(
+  node: Node,
+  type: K,
+  handler: (event: DocumentEventMap[K]) => void,
+  options?: AddEventListenerOptions
+): void => {
+  let host: Element | undefined
+  let seen: WeakSet<Event> | undefined
+  for (let root = rootOf(node);; root = rootOf(host)) {
+    const inner = host
+    if (inner === undefined && root.nodeType === 9) {
+      root.addEventListener(type, handler as EventListener, options)
+      return
+    }
+    seen ??= new WeakSet()
+    const handled = seen
+    root.addEventListener(
+      type,
+      (event) => {
+        if (event.target === inner || handled.has(event)) return
+        handled.add(event)
+        handler(event as DocumentEventMap[K])
+      },
+      options
+    )
+    if (root.nodeType === 9) return
+    host = (root as ShadowRoot).host
+  }
+}
+
 export const isHTMLElement = (node: unknown): node is HTMLElement => {
   const ctor = (node as Node | null)?.ownerDocument?.defaultView?.HTMLElement ??
     globalThis.HTMLElement
@@ -151,22 +193,22 @@ export const trapTab = (event: KeyboardEvent, root: HTMLElement): void => {
 }
 
 export const byAttribute = (
-  document: Document,
+  root: Document | ShadowRoot,
   name: string,
   value: string
 ): HTMLElement | null =>
-  document.querySelector<HTMLElement>(
+  root.querySelector<HTMLElement>(
     "[" + name + "=\"" + CSS.escape(value) + "\"]"
   )
 
 export const focusFinal = (
-  document: Document,
+  root: Document | ShadowRoot,
   popupId: string,
   fallback: HTMLElement | null,
   lost: boolean,
   keyboard: boolean
 ): void => {
-  const marked = byAttribute(document, "data-final-focus", popupId)
+  const marked = byAttribute(root, "data-final-focus", popupId)
   const back = marked ?? fallback
   if (back !== null && (marked !== null || lost)) {
     back.focus({

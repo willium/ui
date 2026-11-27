@@ -233,10 +233,13 @@ import {
   dismissSpan
 } from "./internal/blocker.ts"
 import {
+  focusedOf,
   focusFinal,
   isElement,
   isHTMLElement,
-  override
+  listenTrees,
+  override,
+  rootOf
 } from "./internal/dom.ts"
 import {
   autofillMatch,
@@ -843,11 +846,11 @@ const watch = (
     let current = args
     const send = (message: SelectMessage) => Queue.offerUnsafe(queue, message)
     const trigger = (): HTMLElement | null =>
-      document.getElementById(current.triggerId)
+      rootOf(node).getElementById(current.triggerId)
     const popup = (): HTMLElement =>
-      document.getElementById(current.popupId) ?? node
+      rootOf(node).getElementById(current.popupId) ?? node
     const scroller = (): HTMLElement =>
-      document.getElementById(current.listId) ?? popup()
+      rootOf(node).getElementById(current.listId) ?? popup()
     const inside = (target: Node): boolean =>
       (node.contains(target) && !blocking.is(target)) ||
       trigger()?.contains(target) === true
@@ -925,7 +928,7 @@ const watch = (
       try {
         const text = current.alignId === null
           ? null
-          : document.getElementById(current.alignId)?.querySelector<
+          : rootOf(node).getElementById(current.alignId)?.querySelector<
             HTMLElement
           >("[data-select-item-text]") ?? null
         const value = anchor.querySelector<HTMLElement>("[data-select-value]")
@@ -1067,23 +1070,23 @@ const watch = (
       if (!current.open) return
       const item = current.active === null
         ? null
-        : document.getElementById(current.active)
+        : rootOf(node).getElementById(current.active)
       if (item === null) {
-        if (document.activeElement !== popup()) {
+        if (focusedOf(node) !== popup()) {
           popup().focus({
             preventScroll: true
           })
         }
         return
       }
-      if (document.activeElement !== item) item.focus({ preventScroll: true })
+      if (focusedOf(node) !== item) item.focus({ preventScroll: true })
       if (scroll) item.scrollIntoView({ block: "nearest" })
     }
 
     const reveal = () =>
       frame(() => {
         if (current.open && current.active !== null) {
-          document.getElementById(current.active)?.scrollIntoView({
+          rootOf(node).getElementById(current.active)?.scrollIntoView({
             block: "nearest"
           })
         }
@@ -1137,12 +1140,12 @@ const watch = (
     const closing = () => {
       clearTimeout(timer)
       stopArrow()
-      const focused = document.activeElement
+      const focused = focusedOf(node)
       const lost = focused === null || focused === document.body ||
         node.contains(focused)
       if (current.finalFocus && (lost || !current.focusLeft)) {
         focusFinal(
-          document,
+          rootOf(node),
           current.popupId,
           trigger(),
           lost,
@@ -1287,7 +1290,7 @@ const watch = (
 
     return Effect.acquireRelease(
       Effect.sync(() => {
-        listenOutside(document, signal, {
+        listenOutside(node, signal, {
           open: () => current.open,
           inside,
           pressed: (pointerType) =>
@@ -1298,11 +1301,11 @@ const watch = (
           capture: true,
           signal
         })
-        document.addEventListener("mouseup", onMouseUp, {
+        listenTrees(node, "mouseup", onMouseUp, {
           capture: true,
           signal
         })
-        document.addEventListener("focusin", onFocusIn, {
+        listenTrees(node, "focusin", onFocusIn, {
           capture: true,
           signal
         })

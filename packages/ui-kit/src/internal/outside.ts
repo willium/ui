@@ -1,3 +1,4 @@
+import { listenTrees } from "./dom.ts"
 import { onScrollbar } from "./interaction.ts"
 import { inKept } from "./topLayer.ts"
 
@@ -10,7 +11,7 @@ export interface Outside {
 }
 
 export const listenOutside = (
-  document: Document,
+  node: Node,
   signal: AbortSignal,
   outside: Outside
 ): void => {
@@ -42,13 +43,13 @@ export const listenOutside = (
       focused?.()
     }
   }
-  document.addEventListener("pointerdown", onPointerDown, {
+  listenTrees(node, "pointerdown", onPointerDown, {
     capture: true,
     signal
   })
-  document.addEventListener("click", onClick, { capture: true, signal })
+  listenTrees(node, "click", onClick, { capture: true, signal })
   if (focused !== undefined) {
-    document.addEventListener("focusin", onFocusIn, { capture: true, signal })
+    listenTrees(node, "focusin", onFocusIn, { capture: true, signal })
   }
 }
 

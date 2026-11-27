@@ -77,10 +77,10 @@
  *   a software keyboard), not the layout viewport.
  * - The positioner has to be laid out while the mount runs, so issue the
  *   mount only while the popup shows.
- * - The anchor is the first element in the document that matches
- *   `anchorSelector`, so build the selector from `h.id` to keep two
- *   instances apart. While nothing matches, the mount reports
- *   `anchorHidden`.
+ * - The anchor is the first element in the positioner's tree (the
+ *   document, or its shadow root) that matches `anchorSelector`, so build
+ *   the selector from `h.id` to keep two instances apart. While nothing
+ *   matches, the mount reports `anchorHidden`.
  * - `anchorRect` places the popup against a rectangle in the viewport, such
  *   as the point a context menu opened at, instead of an element. Nothing
  *   moves it, so use `"fixed"` as the `positionMethod`.
@@ -129,6 +129,7 @@ import * as Queue from "effect/Queue"
 import * as Schema from "effect/Schema"
 import * as Stream from "effect/Stream"
 import { idSelector } from "./internal/attributes.ts"
+import { listenTrees, rootOf } from "./internal/dom.ts"
 import {
   inlineEdges,
   lineAt,
@@ -268,8 +269,9 @@ export type InlineHit = typeof InlineHit.Type
 
 /**
  * The area a popup keeps inside: `"clipping-ancestors"`, which is the
- * viewport, an element named by `{ id }`, or a rectangle in viewport
- * coordinates. An element or a rectangle is cut to the viewport.
+ * viewport, an element in the popup's tree named by `{ id }`, or a
+ * rectangle in viewport coordinates. An element or a rectangle is cut to
+ * the viewport.
  *
  * @stability experimental
  * @category schemas
@@ -363,8 +365,9 @@ export type PositionMethod = typeof PositionMethod.Type
  * - `disableAnchorTracking`: the popup is placed only when it opens, when
  *   the window resizes and when its own size changes, not when the page
  *   scrolls or the anchor moves or changes size.
- * - `anchor`: the id of an element, or a `Rect` in the viewport, to place
- *   the popup against instead of the component's own anchor.
+ * - `anchor`: the id of an element in the popup's tree, or a `Rect` in
+ *   the viewport, to place the popup against instead of the component's
+ *   own anchor.
  * - `topLayer`: `false` draws the positioner in place, as the module's
  *   **Gotchas** describe. `true` when left out. The component's JSDoc says
  *   what else changes.
@@ -1602,7 +1605,7 @@ export const trackPosition = (
         return current.topLayer === false ? clipOf(node, viewport) : viewport
       }
       if ("id" in boundary) {
-        const element = document.getElementById(boundary.id)
+        const element = rootOf(node).getElementById(boundary.id)
         return element === null
           ? viewport
           : intersect(innerRect(element), viewport)
@@ -1647,12 +1650,13 @@ export const trackPosition = (
 
     const pass = (popup: Size): void => {
       const virtual = current.anchorRect ?? null
+      const root = rootOf(node)
       const anchor = virtual === null
-        ? document.querySelector(current.anchorSelector)
+        ? root.querySelector(current.anchorSelector)
         : null
       const arrow = current.arrowId === null
         ? null
-        : document.getElementById(current.arrowId)
+        : root.getElementById(current.arrowId)
       const viewport = viewportOf()
       const rtl = view.getComputedStyle(node).direction === "rtl"
       const lines = anchor === null ? null : inlineLines(anchor)
@@ -1751,17 +1755,21 @@ export const trackPosition = (
     }
 
     const observe = (): () => void => {
+      const root = rootOf(node)
       const anchor = current.disableAnchorTracking || current.anchorRect != null
         ? null
-        : document.querySelector(current.anchorSelector)
+        : root.querySelector(current.anchorSelector)
+      const controller = new AbortController()
+      const { signal } = controller
       const visual = view.visualViewport
-      view.addEventListener("resize", update)
-      visual?.addEventListener("resize", update)
-      visual?.addEventListener("scroll", update)
+      view.addEventListener("resize", update, { signal })
+      visual?.addEventListener("resize", update, { signal })
+      visual?.addEventListener("scroll", update, { signal })
       if (!current.disableAnchorTracking && current.anchorRect == null) {
-        document.addEventListener("scroll", onScroll, {
+        listenTrees(node, "scroll", onScroll, {
           capture: true,
-          passive: true
+          passive: true,
+          signal
         })
       }
       let frame = -1
@@ -1784,16 +1792,13 @@ export const trackPosition = (
           for (const clipper of clippersOf(node)) sizes?.observe(clipper)
         }
       } else if ("id" in boundary) {
-        const element = document.getElementById(boundary.id)
+        const element = root.getElementById(boundary.id)
         if (element !== null) sizes?.observe(element)
       }
       watch()
       const moves = anchor === null ? () => {} : observeMove(anchor, update)
       return () => {
-        view.removeEventListener("resize", update)
-        visual?.removeEventListener("resize", update)
-        visual?.removeEventListener("scroll", update)
-        document.removeEventListener("scroll", onScroll, { capture: true })
+        controller.abort()
         view.cancelAnimationFrame(frame)
         sizes?.disconnect()
         moves()

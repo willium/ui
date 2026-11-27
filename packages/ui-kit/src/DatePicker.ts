@@ -355,7 +355,7 @@ const TrackDatePicker = Mount.makeStream(
               (isElement(target) && target.closest(anchors) !== null)
             const composing = trackComposing(document, controller.signal)
             raiseAbove(node)
-            listenOutside(document, controller.signal, {
+            listenOutside(node, controller.signal, {
               open: () => true,
               inside,
               pressed: () => dismiss("outside-press"),

@@ -250,9 +250,12 @@ import {
 import {
   byAttribute,
   focusable,
+  focusedOf,
   isElement,
   isHTMLElement,
+  listenTrees,
   perDocument,
+  rootOf,
   tabbablesIn
 } from "./internal/dom.ts"
 import {
@@ -633,15 +636,10 @@ const TrackDialog = Mount.makeStream(
       const stack = stackOf(document)
       let current: TrackDialogArgs = args
       const send = (message: DialogMessage) => Queue.offerUnsafe(queue, message)
-      const scope = (): Document | ShadowRoot =>
-        node.isConnected
-          ? node.getRootNode() as Document | ShadowRoot
-          : document
-      // In a shadow root, focus outside it leaves its `activeElement` null.
-      const focusedNow = (): Element | null =>
-        scope().activeElement ?? document.activeElement
+      const focusedNow = (): Element | null => focusedOf(node)
       const popup = (): HTMLElement =>
-        (scope().getElementById(current.popupId) as HTMLElement | null) ?? node
+        (rootOf(node).getElementById(current.popupId) as HTMLElement | null) ??
+          node
       const takes = (element: HTMLElement, visible = false): boolean => {
         handOff(element, visible)
         return focusedNow() === element
@@ -676,13 +674,14 @@ const TrackDialog = Mount.makeStream(
         closestOf(target, anyTrigger) != null ||
         trigger?.contains(target) === true
       const findTrigger = (): HTMLElement | null => {
+        const root = rootOf(node)
         const focused = focusedNow()
         return (current.triggerId === null
           ? null
-          : document.getElementById(current.triggerId)) ??
+          : root.getElementById(current.triggerId)) ??
           (isHTMLElement(focused) && focused.matches(controls)
             ? focused
-            : document.querySelector<HTMLElement>(controls))
+            : root.querySelector<HTMLElement>(controls))
       }
       let trigger = findTrigger()
       const active = focusedNow()
@@ -966,7 +965,7 @@ const TrackDialog = Mount.makeStream(
         const visible = closeMethod === "keyboard"
         const marked = closedByFocusOut || (closedByOutsidePress && away)
           ? null
-          : byAttribute(document, "data-final-focus", portalId)
+          : byAttribute(rootOf(node), "data-final-focus", portalId)
         if (marked != null && focusable(marked)) return handOff(marked, visible)
         if (away) return
         const back = [trigger, before, ...[...visited].reverse()].find((
@@ -1044,21 +1043,21 @@ const TrackDialog = Mount.makeStream(
       return Effect.acquireRelease(
         Effect.sync(() => {
           stack.showing.push(entry)
-          document.addEventListener("keydown", onKeyDown, { signal })
-          document.addEventListener("pointerdown", onPointerDown, {
+          listenTrees(node, "keydown", onKeyDown, { signal })
+          listenTrees(node, "pointerdown", onPointerDown, {
             capture: true,
             signal
           })
-          document.addEventListener("pointerup", onPointerEnd, {
+          listenTrees(node, "pointerup", onPointerEnd, {
             capture: true,
             signal
           })
-          document.addEventListener("pointercancel", onPointerEnd, {
+          listenTrees(node, "pointercancel", onPointerEnd, {
             capture: true,
             signal
           })
-          document.addEventListener("click", onClick, { capture: true, signal })
-          document.addEventListener("focusin", onFocusIn, {
+          listenTrees(node, "click", onClick, { capture: true, signal })
+          listenTrees(node, "focusin", onFocusIn, {
             capture: true,
             signal
           })

@@ -802,7 +802,7 @@ const watchPointer = (
     const { signal } = controller
     return Effect.acquireRelease(
       Effect.sync(() => {
-        listenOutside(document, signal, {
+        listenOutside(node, signal, {
           open: () => true,
           inside: (target) => inside(target),
           pressed: () => send(PreviewCardMessage.PressedOutside())
