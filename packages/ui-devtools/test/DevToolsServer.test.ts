@@ -7,8 +7,7 @@ import * as Mcp from "@effect/ui-devtools/internal/mcp"
 import * as Remote from "@effect/ui-devtools/internal/remote"
 import * as Server from "@effect/ui-devtools/internal/server"
 import { DevToolsServer, DevToolsVite } from "@effect/ui-devtools/node"
-import { Html } from "@effect/ui/html"
-import type * as BrowserHost from "@effect/ui/html/BrowserHost"
+import { BrowserHost, Html } from "@effect/ui/html"
 import { HtmlLocator } from "@effect/ui/html/testing"
 import { assert, describe, it } from "@effect/vitest"
 import { Context, Effect, Layer, Schedule, Schema, Stream } from "effect"
@@ -18,7 +17,7 @@ import { AsyncResult } from "effect/reactivity"
 import * as Socket from "effect/socket/Socket"
 import { createServer, request } from "node:http"
 import type { AddressInfo } from "node:net"
-import { type Capture, play } from "./fixtures/TwoEditors.ts"
+import { type Capture, EditorMessage, play } from "./fixtures/TwoEditors.ts"
 
 const wait = (ms: number) =>
   Effect.promise(() => new Promise<void>((resolve) => setTimeout(resolve, ms)))
@@ -653,6 +652,31 @@ describe("DevToolsServer", { concurrent: false }, () => {
           tag: "UpdatedDraft"
         })
         assert.include(JSON.stringify(schema), "text")
+        assert.deepStrictEqual(schema.examples, [
+          { message: { _tag: "UpdatedDraft", text: "" } }
+        ])
+        const exampleSent = yield* agent.call("dispatch", {
+          instance: n1,
+          messages: [schema.examples[0].message]
+        })
+        assert.strictEqual(exampleSent.applied, 1)
+
+        const allSchemas = yield* agent.call("get_message_schema", {
+          instance: n1
+        })
+        assert.deepStrictEqual(
+          allSchemas.examples.map((entry: any) => entry.message._tag),
+          Object.keys(EditorMessage.cases)
+        )
+        const decodeEditor = Schema.decodeUnknownSync(
+          Schema.toCodecJson(EditorMessage)
+        )
+        for (const entry of allSchemas.examples) {
+          assert.isUndefined(entry.redacted)
+          assert.isUndefined(entry.invalid)
+          assert.doesNotThrow(() => decodeEditor(entry.message))
+        }
+
         const unknownTag = yield* agent.fails("get_message_schema", {
           instance: n1,
           tag: "Nope"
@@ -705,6 +729,110 @@ describe("DevToolsServer", { concurrent: false }, () => {
         const pending = yield* agent.call("wait", { timeout: 50 })
         assert.isFalse(pending.settled)
         assert.strictEqual(pending.open.length, 1)
+      }).pipe(Effect.scoped),
+    30_000
+  )
+
+  it.live(
+    "returns validated, redacted, and invalid examples from get_message_schema",
+    () =>
+      Effect.gen(function*() {
+        const SampleMessage = UiSchema.TaggedEnum({
+          SelectedItem: {
+            index: Schema.Number,
+            maybeLabel: Schema.Option(Schema.String),
+            tags: Schema.Array(Schema.String)
+          },
+          SavedToken: { token: Schema.Redacted(Schema.String) },
+          SetEmail: {
+            email: Schema.String.check(Schema.isPattern(/^\S+@\S+$/))
+          },
+          SavedCredential: {
+            token: Schema.Redacted(Schema.String),
+            email: Schema.String.check(Schema.isPattern(/^\S+@\S+$/))
+          },
+          Impossible: { never: Schema.Never }
+        })
+        const Sample = Html.component({
+          name: "Sample",
+          model: Schema.Struct({ count: Schema.Number }),
+          message: SampleMessage
+        }).make({
+          init: () => ({ count: 0 }),
+          update: ($) => ({ count: $.model.count + 1 }),
+          view: (h, model) => h.p(String(model.count))
+        })
+
+        const { agent, url } = yield* serve({ dispatch: true })
+        localStorage.clear()
+        const services = yield* Layer.build(DevTools.layer({ server: url }))
+        const app = document.body.appendChild(document.createElement("div"))
+        yield* Effect.addFinalizer(() => Effect.sync(() => app.remove()))
+        yield* BrowserHost.mountEffect(Sample, {}, app).pipe(
+          Effect.provide(services)
+        )
+        yield* wait(150)
+
+        const [{ instance }] = yield* agent.call<ReadonlyArray<any>>(
+          "list_instances"
+        )
+        const all = yield* agent.call("get_message_schema", { instance })
+        assert.isArray(all.examples)
+        assert.strictEqual(all.examples.length, 5)
+
+        const [selected, savedToken, setEmail, savedCredential, impossible] =
+          all.examples
+
+        assert.deepStrictEqual(selected, {
+          message: {
+            _tag: "SelectedItem",
+            index: 0,
+            maybeLabel: { _tag: "Some", value: "" },
+            tags: [""]
+          }
+        })
+        const filtered = yield* agent.call("get_message_schema", {
+          instance,
+          tag: "SelectedItem"
+        })
+        assert.deepStrictEqual(filtered.examples, [selected])
+        const dispatched = yield* agent.call("dispatch", {
+          instance,
+          messages: [filtered.examples[0].message]
+        })
+        assert.strictEqual(dispatched.applied, 1)
+
+        assert.deepStrictEqual(savedToken, {
+          message: { _tag: "SavedToken", token: { "~redacted": true } },
+          redacted: true
+        })
+        const rejectedRedacted = yield* agent.fails("dispatch", {
+          instance,
+          messages: [savedToken.message]
+        })
+        assert.include(rejectedRedacted, "does not decode")
+
+        assert.deepStrictEqual(setEmail.message, {
+          _tag: "SetEmail",
+          email: ""
+        })
+        assert.isUndefined(setEmail.redacted)
+        assert.isString(setEmail.invalid)
+        assert.include(setEmail.invalid, "email")
+
+        assert.deepStrictEqual(savedCredential.message, {
+          _tag: "SavedCredential",
+          token: { "~redacted": true },
+          email: ""
+        })
+        assert.isTrue(savedCredential.redacted)
+        assert.isString(savedCredential.invalid)
+        assert.include(savedCredential.invalid, "email")
+
+        assert.strictEqual(impossible.tag, "Impossible")
+        assert.isUndefined(impossible.message)
+        assert.isString(impossible.invalid)
+        assert.isAbove(impossible.invalid.length, 0)
       }).pipe(Effect.scoped),
     30_000
   )

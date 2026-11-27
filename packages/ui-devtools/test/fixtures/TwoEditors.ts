@@ -6,7 +6,7 @@ import { Effect, Redacted, Schema } from "effect"
 const wait = (ms: number) =>
   Effect.promise(() => new Promise<void>((resolve) => setTimeout(resolve, ms)))
 
-const EditorMessage = UiSchema.TaggedEnum({
+export const EditorMessage = UiSchema.TaggedEnum({
   UpdatedDraft: { text: Schema.String },
   ClickedSave: {},
   SucceededSaveNote: { savedAt: Schema.String },
