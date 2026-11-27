@@ -1,4 +1,5 @@
 import type * as BrowserHost from "@effect/ui/html/BrowserHost"
+import * as MessageLog from "@effect/ui/MessageLog"
 import * as Effect from "effect/Effect"
 import * as Schedule from "effect/Schedule"
 import * as Schema from "effect/Schema"
@@ -41,38 +42,188 @@ const tagOf = (schema: Json, definitions: Record<string, Json>): unknown => {
     : undefined
 }
 
+// Bounds the padding for minLength and the items for minItems.
+const most = 64
+
+/**
+ * A value for a JSON Schema, or `undefined` when none is found: a constant,
+ * an example, or the smallest value of its type, preferring the first union
+ * member that has one and one item in an array. A `$ref` already being
+ * walked has none, so a recursive type stops at an empty array or a `None`.
+ */
+const exampleOf = (
+  schema: Json,
+  definitions: Record<string, Json>,
+  open: Set<string> = new Set()
+): Json | undefined => {
+  if (schema === true) return null
+  if (!isObject(schema)) return undefined
+  if (typeof schema.$ref === "string") {
+    const name = schema.$ref.slice(schema.$ref.lastIndexOf("/") + 1)
+    if (open.has(name) || definitions[name] === undefined) return undefined
+    open.add(name)
+    const out = exampleOf(definitions[name], definitions, open)
+    open.delete(name)
+    return out
+  }
+  if ("const" in schema) return schema.const
+  if (Array.isArray(schema.enum)) return schema.enum[0]
+  if (Array.isArray(schema.examples) && schema.examples.length > 0) {
+    return schema.examples[0]
+  }
+  if ("default" in schema) return schema.default
+  const members = schema.anyOf ?? schema.oneOf
+  if (Array.isArray(members)) {
+    for (const member of members) {
+      const out = exampleOf(member, definitions, open)
+      if (out !== undefined) return out
+    }
+    return undefined
+  }
+  if (Array.isArray(schema.allOf)) {
+    const { allOf, ...rest } = schema
+    return exampleOf(Object.assign(rest, ...allOf), definitions, open)
+  }
+  if (isObject(schema.not)) return undefined
+  const number = (key: string) =>
+    typeof schema[key] === "number" ? schema[key] : undefined
+  const type = Array.isArray(schema.type) ? schema.type[0] : schema.type
+  switch (type) {
+    case "string":
+      return "a".repeat(Math.min(number("minLength") ?? 0, most))
+    case "number":
+    case "integer": {
+      let out = Math.max(0, number("minimum") ?? -Infinity)
+      const above = number("exclusiveMinimum")
+      if (above !== undefined && out <= above) out = above + 1
+      out = Math.min(out, number("maximum") ?? Infinity)
+      const below = number("exclusiveMaximum")
+      if (below !== undefined && out >= below) out = below - 1
+      return out
+    }
+    case "boolean":
+      return false
+    case "null":
+      return null
+    case "array": {
+      const out: Array<Json> = []
+      for (
+        const item of Array.isArray(schema.prefixItems)
+          ? schema.prefixItems
+          : []
+      ) {
+        const value = exampleOf(item, definitions, open)
+        if (value === undefined) return undefined
+        out.push(value)
+      }
+      const length = Math.min(
+        Math.max(out.length + 1, number("minItems") ?? 0),
+        number("maxItems") ?? Infinity,
+        out.length + most
+      )
+      const item = schema.items === undefined ? true : schema.items
+      while (out.length < length) {
+        const value = exampleOf(item, definitions, open)
+        if (value === undefined) break
+        out.push(value)
+      }
+      return out.length < (number("minItems") ?? 0) ? undefined : out
+    }
+    case "object": {
+      const out: Record<string, Json> = {}
+      const required = Array.isArray(schema.required) ? schema.required : []
+      const properties = isObject(schema.properties) ? schema.properties : {}
+      for (const key of Object.keys(properties)) {
+        const value = exampleOf(properties[key], definitions, open)
+        if (value !== undefined) out[key] = value
+        else if (required.includes(key)) return undefined
+      }
+      if (
+        Object.keys(properties).length === 0 &&
+        isObject(schema.additionalProperties)
+      ) {
+        const value = exampleOf(schema.additionalProperties, definitions, open)
+        if (value !== undefined) out.key = value
+      }
+      return out
+    }
+    default:
+      return null
+  }
+}
+
+interface Document {
+  readonly schema: Json
+  readonly definitions: Record<string, Json>
+}
+
+const documentOf = (schema: Schema.Top): Document =>
+  Schema.toJsonSchemaDocument(
+    Schema.toCodecJson(schema)
+  ) as unknown as Document
+
+const membersOf = (document: Document): ReadonlyArray<Json> =>
+  isObject(document.schema) && Array.isArray(document.schema.anyOf)
+    ? document.schema.anyOf
+    : [document.schema]
+
 const messageSchema = (
   schema: Schema.Top,
   tag: string | undefined
 ): Effect.Effect<Json, string> =>
   Effect.suspend(() => {
-    const document = Schema.toJsonSchemaDocument(
-      Schema.toCodecJson(schema)
-    ) as unknown as {
-      readonly schema: Json
-      readonly definitions: Record<string, Json>
-    }
-    if (tag === undefined) {
-      return Effect.succeed({
-        schema: document.schema,
-        definitions: document.definitions
-      })
-    }
-    const root = document.schema
-    const members = isObject(root) && Array.isArray(root.anyOf)
-      ? root.anyOf
-      : [root]
-    const member = members.find((member) =>
-      tagOf(member, document.definitions) === tag
-    )
-    if (member === undefined) {
-      const tags = members.map((member) => tagOf(member, document.definitions))
-        .filter((t) => typeof t === "string")
+    const document = documentOf(schema)
+    const members = membersOf(document)
+    const tags = members.map((member) => tagOf(member, document.definitions))
+    const index = tag === undefined ? -1 : tags.indexOf(tag)
+    if (tag !== undefined && index === -1) {
       return Effect.fail(
-        "No message _tag " + tag + ". The tags are " + tags.join(", ") + "."
+        "No message _tag " + tag + ". The tags are " +
+          tags.filter((t) => typeof t === "string").join(", ") + "."
       )
     }
-    return Effect.succeed({ schema: member, definitions: document.definitions })
+    const redactedSchema = MessageLog.redactSchema(schema)
+    const redacted = redactedSchema === schema
+      ? undefined
+      : documentOf(redactedSchema)
+    const decode = Schema.decodeUnknownEffect(
+      Schema.toCodecJson(schema as Schema.Codec<unknown>)
+    )
+    const example = (i: number): Effect.Effect<Json> => {
+      const message = exampleOf(members[i], document.definitions)
+      if (message === undefined) {
+        return Effect.succeed({
+          ...(typeof tags[i] === "string" ? { tag: tags[i] } : {}),
+          invalid: "No value fits this schema."
+        })
+      }
+      // The JSON Schema doesn't show a Schema.Redacted, the redacting one does.
+      const shown = redacted === undefined
+        ? undefined
+        : exampleOf(membersOf(redacted)[i], redacted.definitions)
+      const entry = shown !== undefined &&
+          JSON.stringify(shown) !== JSON.stringify(message)
+        ? { message: shown, redacted: true }
+        : { message }
+      return Effect.match(decode(message, { errors: "all" }), {
+        onFailure: (error) => ({ ...entry, invalid: error.message }),
+        onSuccess: () => entry
+      })
+    }
+    return tag === undefined
+      ? Effect.map(
+        Effect.forEach(members, (_, i) => example(i)),
+        (examples) => ({
+          schema: document.schema,
+          definitions: document.definitions,
+          examples
+        })
+      )
+      : Effect.map(example(index), (entry) => ({
+        schema: members[index],
+        definitions: document.definitions,
+        examples: [entry]
+      }))
   })
 
 export const makeHandler = (

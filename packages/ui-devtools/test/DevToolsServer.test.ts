@@ -665,7 +665,9 @@ describe("DevToolsServer", { concurrent: false }, () => {
           instance: n1
         })
         assert.deepStrictEqual(
-          allSchemas.examples.map((entry: any) => entry.message._tag),
+          allSchemas.examples.map((entry: any) =>
+            entry.message._tag
+          ),
           Object.keys(EditorMessage.cases)
         )
         const decodeEditor = Schema.decodeUnknownSync(
@@ -701,9 +703,7 @@ describe("DevToolsServer", { concurrent: false }, () => {
         })
         assert.strictEqual(sent.applied, 2)
         assert.deepStrictEqual(
-          sent.outcomes.map((outcome: any) =>
-            outcome._tag
-          ),
+          sent.outcomes.map((outcome: any) => outcome._tag),
           ["Updated", "Updated"]
         )
         const update = yield* agent.call("get_entry", {

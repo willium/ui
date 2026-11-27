@@ -27,7 +27,7 @@
  * | `diff_state` | what an entry changed in its instance's Model |
  * | `show_entry` | paints the page as it was at an entry |
  * | `resume` | shows the live page again |
- * | `get_message_schema` | the JSON Schema of the messages an instance accepts |
+ * | `get_message_schema` | the JSON Schema of the messages an instance accepts, with an example of each |
  * | `dispatch` | sends messages to an instance, when `dispatch` is on |
  * | `wait` | waits for the Command runs started since an entry to end |
  *

@@ -2090,6 +2090,20 @@ const encodeCause = (cause: Cause.Cause<unknown>): typeof CauseWire.Type => ({
 })
 
 /**
+ * The Schema the log encodes with: every `Schema.Redacted` in `schema`
+ * encodes as `{ "~redacted": true }`, which never decodes. A Schema without
+ * one is returned as is.
+ *
+ * @stability experimental
+ * @category Wire
+ * @since 0.1.0
+ */
+export const redactSchema = <S extends Schema.Top>(schema: S): S | Schema.Top =>
+  holdsRedacted(schema.ast)
+    ? Schema.make<Schema.Top>(redactAST(schema.ast))
+    : schema
+
+/**
  * Encodes any value as JSON, best effort, with the Wire's placeholders for
  * what has no JSON form.
  *
