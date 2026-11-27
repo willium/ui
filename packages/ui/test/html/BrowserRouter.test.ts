@@ -1060,4 +1060,17 @@ describe("BrowserRouter", { concurrent: false }, () => {
       Effect.scoped,
       Effect.ensuring(Effect.sync(() => AppRoute.setBase("")))
     ))
+
+  it.effect("restores the union's previous base when its Scope closes", () =>
+    Effect.gen(function*() {
+      window.history.replaceState(null, "", "/docs/people/1")
+      yield* Effect.gen(function*() {
+        yield* Layer.build(
+          BrowserRouter.layer({ routes: AppRoute, base: "/docs/" })
+        )
+        expect(AppRoute.base()).toBe("/docs/")
+        expect(AppRoute.print(AppRoute.Home())).toBe("/docs/")
+      }).pipe(Effect.scoped)
+      expect(AppRoute.base()).toBe("")
+    }))
 })

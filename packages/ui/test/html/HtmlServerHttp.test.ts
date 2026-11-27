@@ -138,4 +138,37 @@ describe("HtmlServerHttp.layerHttp", () => {
       AppRoute.NotFound({ params: { "*": "nowhere" } })
     ])
   })
+
+  it("serves routes under a scoped base without mutating the union before build or after disposal", async () => {
+    const docs = layerHttp(App, {
+      routes: AppRoute,
+      document,
+      base: "/docs/"
+    }).pipe(Layer.provide(People.layer))
+    assert.strictEqual(AppRoute.base(), "")
+
+    const person = await request(docs, "/docs/people/1")
+    assert.strictEqual(person.status, 200)
+    assert.include(person.body, "<p id=\"bio\">Bio of person 1</p>")
+    assert.include(person.body, "href=\"/docs/\"")
+    assert.include(person.body, "href=\"/docs/people/1\"")
+    assert.notInclude(person.body, "/docs/docs/")
+    assert.strictEqual(AppRoute.base(), "")
+
+    const home = await request(docs, "/docs/")
+    assert.strictEqual(home.status, 200)
+    assert.include(home.body, "<h1>Home</h1>")
+
+    const outside = await request(docs, "/people/1")
+    assert.strictEqual(outside.status, 404)
+    assert.notInclude(outside.body, "<h1>Not found</h1>")
+
+    const bareBase = await request(docs, "/docs")
+    assert.strictEqual(bareBase.status, 301)
+    assert.strictEqual(bareBase.headers.get("location"), "/docs/")
+
+    const trailing = await request(docs, "/docs/people/1/")
+    assert.strictEqual(trailing.status, 301)
+    assert.strictEqual(trailing.headers.get("location"), "/docs/people/1")
+  })
 })

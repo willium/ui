@@ -290,7 +290,7 @@ describe("Route", () => {
 
   it("parses and prints under the base path", () => {
     const routes = makeRoutes()
-    routes.setBase("/en/")
+    routes.setBase("/en")
     assert.strictEqual(routes.base(), "/en")
     assert.strictEqual(routes.print(routes.Home()), "/en")
     assert.strictEqual(routes.print(routes.NewPerson()), "/en/people/new")
@@ -300,7 +300,30 @@ describe("Route", () => {
     )
     assert.strictEqual(parse(routes, "/en/people/5")?._tag, "Person")
     assert.strictEqual(parse(routes, "/en")?._tag, "Home")
+    assert.isFalse(Option.getOrThrow(routes.resolve("/en")).redirected)
+    assert.isTrue(Option.getOrThrow(routes.resolve("/en/")).redirected)
     assert.isUndefined(parse(routes, "/fr/people/5"))
+  })
+
+  it("keeps a trailing-slash base for Home and treats relative or URL bases as root", () => {
+    const routes = makeRoutes()
+    routes.setBase("/docs/")
+    assert.strictEqual(routes.base(), "/docs/")
+    assert.strictEqual(routes.print(routes.Home()), "/docs/")
+    assert.strictEqual(routes.print(routes.NewPerson()), "/docs/people/new")
+    assert.isFalse(Option.getOrThrow(routes.resolve("/docs/")).redirected)
+    assert.isTrue(Option.getOrThrow(routes.resolve("/docs")).redirected)
+    assert.isTrue(
+      Option.getOrThrow(routes.resolve("/docs/people/5/")).redirected
+    )
+    assert.isUndefined(parse(routes, "/docs-extra"))
+
+    for (const base of ["./", "https://cdn.example.com/static/"]) {
+      routes.setBase(base)
+      assert.strictEqual(routes.base(), "")
+      assert.strictEqual(routes.print(routes.Home()), "/")
+      assert.strictEqual(parse(routes, "/people/5")?._tag, "Person")
+    }
   })
 
   it("parses and prints in the fragment with a # base", () => {

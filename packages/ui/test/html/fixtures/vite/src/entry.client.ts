@@ -1,3 +1,4 @@
+/// <reference types="vite/client" />
 import { Router } from "@effect/ui"
 import { BrowserRouter, HtmlHydrate } from "@effect/ui/html"
 import { Effect, Layer } from "effect"
@@ -9,7 +10,10 @@ HtmlHydrate.hydrate(
   document.getElementById("app")!,
   JSON.parse(document.getElementById("state")!.textContent!)
 ).pipe(
-  Layer.provide([BrowserRouter.layer({ routes: AppRoute }), People.layer]),
+  Layer.provide([
+    BrowserRouter.layer({ routes: AppRoute, base: import.meta.env.BASE_URL }),
+    People.layer
+  ]),
   Layer.launch,
   Effect.runFork
 )

@@ -92,6 +92,82 @@ describe("HtmlServerVite.plugin", () => {
     }
   }, 60_000)
 
+  it(
+    "serves dev SSR under a non-root Vite base with single-prefixed links and assets",
+    async () => {
+      const server = await createServer(
+        config({ base: "/docs/", server: { port: 0, strictPort: false } })
+      )
+      await server.listen()
+      try {
+        const origin = server.resolvedUrls!.local[0]!
+        const get = (url: string) => fetch(new URL(url, origin))
+
+        const person = await get("/docs/people/1")
+        expect(person.status).toBe(200)
+        const html = await person.text()
+        expect(html).toContain("<p id=\"bio\">Bio of person 1</p>")
+        expect(html).toContain("href=\"/docs/\"")
+        expect(html).toContain("href=\"/docs/people/1\"")
+        expect(html).toContain("/docs/@vite/client")
+        expect(html).toContain("/docs/src/entry.client.ts")
+        expect(html).toContain("/docs/src/styles.css")
+        expect(html).not.toContain("/docs/docs/")
+
+        const home = await get("/docs/")
+        expect(home.status).toBe(200)
+        expect(await home.text()).toContain("<h1>Home</h1>")
+
+        const outside = await get("/people/1")
+        expect(outside.status).toBe(404)
+        const outsideHtml = await outside.text()
+        expect(outsideHtml).not.toContain("Bio of person 1")
+        expect(outsideHtml).not.toContain("<h1>Not found</h1>")
+      } finally {
+        await server.close()
+      }
+    },
+    60_000
+  )
+
+  it(
+    "prerenders app-relative routes under a non-root Vite base into the root of outDir",
+    async () => {
+      const outDir = await fs.mkdtemp(
+        path.join(os.tmpdir(), "html-server-vite-base-")
+      )
+      try {
+        const builder = await createBuilder(
+          config({ base: "/docs/", build: { outDir, emptyOutDir: true } })
+        )
+        await builder.buildApp()
+        const page = (file: string) =>
+          fs.readFile(path.join(outDir, file), "utf8")
+
+        const home = await page("index.html")
+        expect(home).toContain("<h1>Home</h1>")
+        expect(home).toContain("href=\"/docs/people/1\"")
+        expect(home).toMatch(
+          /<script type="module" crossorigin src="\/docs\/assets\/[^"]+\.js">/
+        )
+        expect(home).toMatch(
+          /<link rel="stylesheet" crossorigin href="\/docs\/assets\/[^"]+\.css">/
+        )
+        expect(home).not.toContain("/docs/docs/")
+
+        const person = await page("people/1.html")
+        expect(person).toContain("<p id=\"bio\">Bio of person 1</p>")
+        expect(person).toContain("href=\"/docs/\"")
+        expect(person).not.toContain("/docs/docs/")
+
+        expect(await page("404.html")).toContain("<h1>Not found</h1>")
+      } finally {
+        await fs.rm(outDir, { recursive: true, force: true })
+      }
+    },
+    60_000
+  )
+
   it("rejects watch builds before building either environment", async () => {
     const builder = await createBuilder(config({ build: { watch: {} } }))
     const build = vi
