@@ -57,25 +57,26 @@ const Stay = Html.component({
           Picked: ({ end, start }) => StayMessage.Picked({ start, end }),
           RequestedMonth: ({ month }) => StayMessage.RequestedMonth({ month })
         },
-        view: (rangeCalendar) =>
-          rangeCalendar.root(h.div).children(
-            rangeCalendar.grid(
+        view: (rangeCalendar) => {
+          const [month] = rangeCalendar.months
+          return rangeCalendar.root(h.div).children(
+            month.grid(
               h.table.class("grid").attr("aria-multiselectable", "false")
             ).children(
               h.tbody(
-                ...rangeCalendar.weeks.map((week) =>
+                ...month.weeks.map((week) =>
                   h.tr(
                     ...week.map((date) => {
                       const day = DateTime.getPartUtc(date, "month") === 11
                         ? DateTime.getPartUtc(date, "day")
                         : 0
-                      return rangeCalendar.cell({
+                      return month.cell({
                         element: h.td.attr("aria-selected", "mixed").class(
                           "cell-" + day
                         ),
                         date
                       }).children(
-                        rangeCalendar.day({
+                        month.day({
                           element: h.button.attrs({
                             class: "day-" + day,
                             "data-selected": "x",
@@ -93,6 +94,7 @@ const Stay = Html.component({
               )
             )
           )
+        }
       })
     )
 })
@@ -286,6 +288,7 @@ describe("RangeCalendar", () => {
 
       // Hovering the disabled duplicate Dec 1 in November's grid does not alter the preview
       yield* play.fire(dayIn(0, "2026-12-01"), "mouseenter")
+      yield* play.expectIgnored()
       assert.strictEqual(
         play.root.get(dayIn(1, "2026-12-03")).attrs?.["data-range-end"],
         ""

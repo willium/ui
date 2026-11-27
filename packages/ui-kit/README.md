@@ -30,7 +30,7 @@ A component that doesn't need an instance, such as `Switch`, is a plain view fun
 - [Autocomplete](src/Autocomplete.ts): an input that suggests completions from a list as the user types, whose open state and text live in your Model, with inline completion, grids, inline lists, and an input that submits with its form.
 - [Avatar](src/Avatar.ts): an image with a fallback.
 - [Button](src/Button.ts): a native button that can stay focusable while disabled.
-- [Calendar](src/Calendar.ts): a controlled single-month calendar grid using `DateTime`, with keyboard navigation, roving focus, min/max bounds, unavailable days and right-to-left support.
+- [Calendar](src/Calendar.ts): a controlled calendar of one or more consecutive months using `DateTime`, with keyboard navigation, roving focus, min/max bounds, unavailable days and right-to-left support.
 - [Checkbox](src/Checkbox.ts): a controlled checkbox with an indicator.
 - [CheckboxGroup](src/CheckboxGroup.ts): one list of ticked values shared by the checkboxes inside it, with a parent checkbox that ticks or unticks them all.
 - [Collapsible](src/Collapsible.ts): a panel (any element) that a button shows and hides, whose open state lives in your Model. It publishes the panel's size as CSS variables for height and width transitions, supports `keepMounted: "css"` for CSS-controlled visibility below a breakpoint, and with `hiddenUntilFound` the browser's find-in-page can open it.

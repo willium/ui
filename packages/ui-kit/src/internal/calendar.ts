@@ -44,6 +44,7 @@ export const CalendarGridPropsFields = {
   today: CalendarDate,
   min: Schema.optional(CalendarDate),
   max: Schema.optional(CalendarDate),
+  months: Schema.optional(Schema.Number),
   firstDayOfWeek: Schema.optional(CalendarWeekdayNumber),
   locale: Schema.optional(CalendarLocale),
   disabled: Schema.optional(Schema.Boolean),
@@ -54,6 +55,7 @@ export const CalendarGridModel = Schema.Struct({
   focusedDay: Schema.NullOr(Schema.DateTimeUtc),
   focused: Schema.Boolean,
   shownMonth: Schema.DateTimeUtc,
+  shownMonths: Schema.Number,
   pendingFocus: Schema.NullOr(Schema.DateTimeUtc),
   // The root's CSS `direction` is right-to-left.
   rtl: Schema.Boolean
@@ -81,6 +83,13 @@ export const normalizeOptional = (
 export const startOfMonth = (date: DateTime.DateTime): DateTime.Utc =>
   DateTime.startOf(toDay(date), "month")
 
+export const addMonths = (date: DateTime.Utc, months: number): DateTime.Utc =>
+  DateTime.add(date, { months })
+
+// The number of months shown: `months` as a positive integer, or 1.
+export const monthCount = (months: number | undefined): number =>
+  Math.max(1, Math.floor(months ?? 1)) || 1
+
 const endOfMonth = (date: DateTime.Utc): DateTime.Utc =>
   DateTime.removeTime(DateTime.endOf(date, "month"))
 
@@ -101,6 +110,22 @@ export const isOutOfRange = (
 ): boolean =>
   (min !== null && DateTime.isLessThan(date, min)) ||
   (max !== null && DateTime.isGreaterThan(date, max))
+
+// The shown months, from the first to the last.
+export interface CalendarWindow {
+  readonly monthStart: DateTime.Utc
+  readonly lastMonth: DateTime.Utc
+}
+
+export const inWindow = (window: CalendarWindow, date: DateTime.Utc): boolean =>
+  !isOutOfRange(date, window.monthStart, endOfMonth(window.lastMonth))
+
+// A day of another shown month that this grid renders as a disabled copy.
+export const isCopy = (
+  window: CalendarWindow,
+  gridMonth: DateTime.Utc,
+  date: DateTime.Utc
+): boolean => !sameMonth(date, gridMonth) && inWindow(window, date)
 
 const clampDate = (
   date: DateTime.Utc,
@@ -283,8 +308,9 @@ export const moveDate = (
   return isOutOfRange(clamped, min, max) ? date : clamped
 }
 
-interface FocusContext {
-  readonly monthStart: DateTime.Utc
+export interface FocusContext extends CalendarWindow {
+  readonly months: number
+  readonly weekStartsOn: CalendarWeekdayNumber
   readonly preferred: DateTime.Utc | null
   readonly today: DateTime.Utc
   readonly min: DateTime.Utc | null
@@ -304,7 +330,7 @@ const shown = (
   date: DateTime.Utc | null
 ): DateTime.Utc | null =>
   date !== null &&
-    sameMonth(date, context.monthStart) &&
+    inWindow(context, date) &&
     !isOutOfRange(date, context.min, context.max)
     ? date
     : null
@@ -315,7 +341,7 @@ const clampedShown = (
 ): DateTime.Utc | null =>
   shown(context, clampDate(date, context.min, context.max))
 
-const focusInMonth = (
+const focusInWindow = (
   context: FocusContext,
   previousFocusedDay: DateTime.Utc | null
 ): DateTime.Utc | null =>
@@ -323,51 +349,53 @@ const focusInMonth = (
     (previousFocusedDay === null ? null : clampedShown(
       context,
       withDayInMonth(
-        context.monthStart,
+        // The shown month nearest the previous one.
+        clampDate(
+          startOfMonth(previousFocusedDay),
+          context.monthStart,
+          context.lastMonth
+        ),
         DateTime.getPartUtc(previousFocusedDay, "day")
       )
     )) ??
     shown(context, context.today) ??
     clampedShown(context, context.monthStart)
 
-type Weeks = ReadonlyArray<ReadonlyArray<DateTime.Utc>>
-
 const rendered = (
   context: FocusContext,
-  weeks: Weeks,
   date: DateTime.Utc | null
 ): DateTime.Utc | null => {
-  const first = weeks[0]?.[0]
-  const last = weeks.at(-1)?.at(-1)
+  const { weekStartsOn } = context
   return date !== null &&
-      first !== undefined &&
-      last !== undefined &&
-      !isOutOfRange(date, first, last) &&
+      !isOutOfRange(
+        date,
+        DateTime.startOf(context.monthStart, "week", { weekStartsOn }),
+        DateTime.removeTime(
+          DateTime.endOf(endOfMonth(context.lastMonth), "week", {
+            weekStartsOn
+          })
+        )
+      ) &&
       !isOutOfRange(date, context.min, context.max)
     ? date
     : null
 }
 
-// `focusInMonth`, or when no day of the shown month is in range, the rendered
-// day nearest to it.
+// `focusInWindow`, or when no shown day is in range, the rendered day nearest
+// to the window.
 const focusInGrid = (
   context: FocusContext,
-  weeks: Weeks,
   previousFocusedDay: DateTime.Utc | null
 ): DateTime.Utc | null =>
-  focusInMonth(context, previousFocusedDay) ??
-    rendered(
-      context,
-      weeks,
-      clampDate(context.monthStart, context.min, context.max)
-    )
+  focusInWindow(context, previousFocusedDay) ??
+    rendered(context, clampDate(context.monthStart, context.min, context.max))
 
 export const syncMonthPhase = (
   model: CalendarGridModel,
-  context: FocusContext,
-  weeks: Weeks
+  context: FocusContext
 ): CalendarGridPhase => {
-  if (sameMonth(model.shownMonth, context.monthStart)) {
+  const sameStart = sameMonth(model.shownMonth, context.monthStart)
+  if (sameStart && model.shownMonths === context.months) {
     return {
       focusedDay: model.focusedDay,
       focused: model.focused,
@@ -375,12 +403,9 @@ export const syncMonthPhase = (
       shouldFocus: false
     }
   }
-  if (
-    model.pendingFocus !== null &&
-    sameMonth(model.pendingFocus, context.monthStart)
-  ) {
+  if (model.pendingFocus !== null && inWindow(context, model.pendingFocus)) {
     const target = clampedShown(context, model.pendingFocus) ??
-      focusInGrid(context, weeks, model.focusedDay)
+      focusInGrid(context, model.focusedDay)
     return {
       focusedDay: target,
       focused: model.focused && target !== null,
@@ -388,23 +413,23 @@ export const syncMonthPhase = (
       shouldFocus: target !== null
     }
   }
+  const kept = shown(context, model.focusedDay)
   const focusedDay = model.focusedDay === null
     ? null
-    : focusInGrid(context, weeks, model.focusedDay)
-  // The focused day left the DOM with its month, so focus follows the tab stop.
-  const refocus = model.focused && focusedDay !== null
+    : kept ?? focusInGrid(context, model.focusedDay)
+  const focused = model.focused && focusedDay !== null
   return {
     focusedDay,
-    focused: refocus,
+    focused,
     pendingFocus: null,
-    shouldFocus: refocus
+    // The focused day left the DOM, or moved to another grid when the first
+    // month changed, so focus follows the tab stop.
+    shouldFocus: focused && (kept === null || !sameStart)
   }
 }
 
 export const tabStopOf = (
   focusedDay: DateTime.Utc | null,
-  context: FocusContext,
-  weeks: Weeks
+  context: FocusContext
 ): DateTime.Utc | null =>
-  rendered(context, weeks, focusedDay) ??
-    focusInGrid(context, weeks, focusedDay)
+  rendered(context, focusedDay) ?? focusInGrid(context, focusedDay)

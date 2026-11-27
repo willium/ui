@@ -1,16 +1,17 @@
 /**
- * A controlled single-month calendar grid for picking a date. Pass the
- * selected date as `value`, the visible month as `month` and the current day
- * as `today`. Handle `Picked` to update `value` and `RequestedMonth` to
- * update `month`. Your view supplies the markup; the component computes
- * the grid dates and attributes and manages keyboard navigation and focus.
+ * A controlled calendar for picking a date, showing one month or several
+ * consecutive months. Pass the selected date as `value`, the first visible
+ * month as `month`, the number of months as `months` and the current day as
+ * `today`. Handle `Picked` to update `value` and `RequestedMonth` to update
+ * `month`. Your view supplies the markup; the component computes the grid
+ * dates and attributes and manages keyboard navigation and focus.
  *
  * **Anatomy**
  *
  * | Part       | Element    |
  * | :--------- | :--------- |
- * | `root`     | any element, around the header and the grid |
- * | `heading`  | any element, showing `calendar.title` |
+ * | `root`     | any element, around the header and the grids |
+ * | `heading`  | any element, showing the month's `title` |
  * | `previous` | `<button>` |
  * | `next`     | `<button>` |
  * | `grid`     | `<table>` |
@@ -18,15 +19,18 @@
  * | `cell`     | `<td>` inside the grid body |
  * | `day`      | `<button>` inside each `cell` |
  *
+ * `root`, `previous`, `next`, `weekday` and `weekdays` (short and long names
+ * in display order) are shared. `months` holds one entry per shown month,
+ * never empty, with that month's `month` (its normalized first day), `title`
+ * (localized month and year), `weeks` (`DateTime.Utc[][]`, whole weeks) and
+ * its `heading`, `grid`, `cell` and `day` parts. Use each month's parts
+ * inside its own grid.
+ *
  * `root`, `heading`, `previous`, `next` and `grid` take the consumer's
  * builder and return it. `weekday({ element, index })` takes the column index
  * (`0` to `6`), `cell({ element, date })` takes the cell's date, and
  * `day({ element, date, unavailable? })` takes the day's date and an optional
  * `unavailable` flag. No part adds markup.
- *
- * The parts object also carries `weeks` (`DateTime.Utc[][]`, whole weeks),
- * `weekdays` (short and long names in display order), `month` (normalized
- * first of the shown month) and `title` (localized month and year).
  *
  * Inside a `Field`, apply `field.group` to `root`, `field.member` to each
  * `day`, and pass `disabled: field.disabled`.
@@ -53,8 +57,8 @@
  *
  * **Keyboard**
  *
- * When the grid has an enabled day, one day sits in the page's Tab order
- * (`tabindex="0"`); the rest have `tabindex="-1"`.
+ * When a grid has an enabled day, one day across all grids sits in the
+ * page's Tab order (`tabindex="0"`); the rest have `tabindex="-1"`.
  *
  * - ArrowLeft / ArrowRight move by one day (swapped in a right-to-left layout)
  * - ArrowUp / ArrowDown move by one week
@@ -66,13 +70,23 @@
  * Unavailable days stay focusable with `aria-disabled="true"`, are not
  * skipped by arrow keys, and emit nothing when pressed. Days outside `min`
  * and `max` are natively `disabled`, and keyboard navigation clamps to the
- * range. Moves that leave the shown month emit `RequestedMonth`; if the
- * consumer leaves `month` unchanged, focus stays in the shown month. When
- * `month` changes while a day has focus, focus moves through `root` to the
- * new tab stop without leaving the calendar. Keep the same `root` element
- * mounted across month changes; the grid and days can be replaced.
- * If no day in the new month is in range, a visible day from an adjacent
+ * range. Moves between shown months stay in the calendar. Moves that leave
+ * them emit `RequestedMonth` with the first month shifted the least that
+ * shows the target; if the consumer leaves `month` unchanged, focus stays
+ * where it was. When `month` or `months` changes while a day has focus,
+ * focus moves through `root` to the new tab stop without leaving the
+ * calendar, unless the focused day is still shown in the same grid. Keep the
+ * same `root` element mounted across month changes; the grids and days can
+ * be replaced. If no shown day is in range, a visible day from an adjacent
  * month can receive focus.
+ *
+ * **Several months**
+ *
+ * A day outside its grid's month that another grid shows, such as December
+ * 1st in November's grid, is a copy: natively `disabled` with
+ * `data-disabled`, and never the tab stop. Outside days before the first
+ * month and after the last behave as in a single month. `previous` and
+ * `next` step one month.
  *
  * **Usage**
  *
@@ -81,7 +95,7 @@
  * locale, which may differ from the browser's; pass `locale` when rendering
  * on a server.
  *
- * **Example** (A controlled calendar whose selected date and month live in the consumer's Model)
+ * **Example** (A controlled two-month calendar whose selected date and first month live in the consumer's Model)
  *
  * ```ts import.meta.vitest
  * import { UiSchema } from "@effect/ui"
@@ -115,6 +129,7 @@
  *       props: {
  *         value: model.date,
  *         month: model.month,
+ *         months: 2,
  *         today: DateTime.makeUnsafe("2026-11-26T00:00:00Z"),
  *         locale: "en-US"
  *       },
@@ -124,24 +139,28 @@
  *       },
  *       view: (calendar) =>
  *         calendar.root(h.div.class("calendar")).children(
- *           calendar.heading(h.h2).children(calendar.title),
  *           calendar.previous(h.button).children("Prev"),
  *           calendar.next(h.button).children("Next"),
- *           calendar.grid(h.table.class("grid")).children(
- *             h.thead(
- *               h.tr(
- *                 ...calendar.weekdays.map((day, index) =>
- *                   calendar.weekday({ element: h.th, index }).children(day.short)
- *                 )
- *               )
- *             ),
- *             h.tbody(
- *               ...calendar.weeks.map((week) =>
- *                 h.tr(
- *                   ...week.map((date) =>
- *                     calendar.cell({ element: h.td, date }).children(
- *                       calendar.day({ element: h.button, date }).children(
- *                         String(DateTime.getPartUtc(date, "day"))
+ *           ...calendar.months.map((month) =>
+ *             h.section(
+ *               month.heading(h.h2).children(month.title),
+ *               month.grid(h.table.class("grid")).children(
+ *                 h.thead(
+ *                   h.tr(
+ *                     ...calendar.weekdays.map((day, index) =>
+ *                       calendar.weekday({ element: h.th, index }).children(day.short)
+ *                     )
+ *                   )
+ *                 ),
+ *                 h.tbody(
+ *                   ...month.weeks.map((week) =>
+ *                     h.tr(
+ *                       ...week.map((date) =>
+ *                         month.cell({ element: h.td, date }).children(
+ *                           month.day({ element: h.button, date }).children(
+ *                             String(DateTime.getPartUtc(date, "day"))
+ *                           )
+ *                         )
  *                       )
  *                     )
  *                   )
@@ -156,6 +175,7 @@
  * const { html } = await Effect.runPromise(HtmlServer.renderToHtml(Booking, {}))
  * if (!/<table class="grid"[^>]* role="grid"/.test(html)) throw new Error("the grid isn't a styled grid")
  * if (!/<td[^>]* role="gridcell"[^>]* aria-selected="true"/.test(html)) throw new Error("no selected cell")
+ * if (html.match(/role="grid"/g)?.length !== 2) throw new Error("not two grids")
  * ```
  *
  * @stability experimental
@@ -176,6 +196,7 @@ import * as Stream from "effect/Stream"
 import { DirectionProvider } from "./DirectionProvider.ts"
 import { fallbackLabel, flag, type Keyed } from "./internal/attributes.ts"
 import {
+  addMonths,
   CalendarDate,
   CalendarDayRef,
   CalendarGridKey,
@@ -189,7 +210,10 @@ import {
   formatMonthTitle,
   fullDateFormatter,
   gridKeyOf,
+  inWindow,
+  isCopy,
   isOutOfRange,
+  monthCount,
   moveDate,
   normalizeOptional,
   sameDay,
@@ -219,8 +243,10 @@ export type CalendarWeekday = CalendarWeekdayName
  *
  * - `value`: the selected date, or `null` for none. Normalized with
  *   `DateTime.removeTime`.
- * - `month`: any date in the month to display. Controlled so consumers can
- *   jump to a month and load its availability.
+ * - `month`: any date in the first month to display. Controlled so
+ *   consumers can jump to a month and load its availability.
+ * - `months`: how many consecutive months to show, a positive integer.
+ *   Defaults to `1`.
  * - `today`: the current day, passed as a prop so `init` stays pure and
  *   server HTML matches the client. Prefer `DateTime.nowInCurrentZone` or
  *   another zoned `DateTime`.
@@ -262,8 +288,8 @@ export type CalendarProps = typeof CalendarProps.Type
  * - `Picked`: emitted when the user presses an enabled, available day while
  *   not `readOnly`. Carries the normalized midnight-UTC `date`.
  * - `RequestedMonth`: emitted when the user presses `previous` or `next` or
- *   navigates with the keyboard outside the shown month. Carries the
- *   normalized first day of the requested `month`.
+ *   navigates with the keyboard outside the shown months. Carries the
+ *   normalized first day of the requested first `month`.
  *
  * @stability experimental
  * @category schemas
@@ -312,8 +338,14 @@ const CalendarRootRef = Renderer.ref("CalendarRoot")
 
 const monthOf = (props: CalendarProps) => startOfMonth(props.month)
 
-const contextOf = (props: CalendarProps, monthStart = monthOf(props)) => ({
+const contextOf = (
+  props: CalendarProps,
+  monthStart = monthOf(props),
+  months = monthCount(props.months)
+) => ({
   monthStart,
+  lastMonth: addMonths(monthStart, months - 1),
+  months,
   weekStartsOn: props.firstDayOfWeek ?? firstDayOfWeek(props.locale),
   preferred: normalizeOptional(props.value),
   today: toDay(props.today),
@@ -339,25 +371,33 @@ const navigate = (
     context.max
   )
   if (sameDay(target, date)) return settled($)
-  if (sameMonth(target, context.monthStart)) {
+  if (inWindow(context, target)) {
     return $.evolve({
       focusedDay: target,
       pendingFocus: null
     }).run(focusDay(target))
   }
+  // Shift the window the least that shows the target.
+  const month = startOfMonth(target)
   return $.evolve({ pendingFocus: target }).emit(
-    CalendarEvents.RequestedMonth({ month: startOfMonth(target) })
+    CalendarEvents.RequestedMonth({
+      month: DateTime.isLessThan(target, context.monthStart)
+        ? month
+        : addMonths(month, 1 - context.months)
+    })
   )
 }
 
 /**
- * A headless calendar grid. Call it with the consumer's `h`, the `props`,
- * `onEmit`, and a `view` closure that draws `root`, `heading`, `previous`,
- * `next`, `grid`, `weekday`, `cell` and `day`.
+ * A headless calendar. Call it with the consumer's `h`, the `props`,
+ * `onEmit`, and a `view` closure that draws `root`, `previous`, `next`,
+ * `weekday`, and each entry of `months`: its `heading`, `grid`, `cell` and
+ * `day`.
  *
  * **Details**
  *
- * The parts object also exposes `weeks`, `weekdays`, `month` and `title`.
+ * The parts object also exposes `weekdays`, and each entry of `months` its
+ * `month`, `title` and `weeks`.
  *
  * Each part's owned attributes win over values the consumer set on the
  * builder before applying the part, including attributes a state leaves
@@ -401,6 +441,7 @@ export const Calendar = Html.component({
     focusedDay: null,
     focused: false,
     shownMonth: monthOf(props),
+    shownMonths: monthCount(props.months),
     pendingFocus: null,
     rtl: false
   }),
@@ -416,10 +457,10 @@ export const Calendar = Html.component({
       )
     },
     ClickedStep: ($, { months }) => {
-      const { max, min, monthStart } = contextOf($.props)
+      const { lastMonth, max, min, monthStart } = contextOf($.props)
       if (
         $.props.disabled === true ||
-        !canStepMonth(monthStart, months, min, max)
+        !canStepMonth(months < 0 ? monthStart : lastMonth, months, min, max)
       ) {
         return $.model
       }
@@ -443,14 +484,14 @@ export const Calendar = Html.component({
     PressedKey: ($, { date, move }) => navigate($, date, move),
     SyncedMonth: ($) => {
       const context = contextOf($.props)
-      const { shouldFocus, ...phase } = syncMonthPhase(
-        $.model,
-        context,
-        weeksOfMonth(context.monthStart, context.weekStartsOn)
-      )
+      const { shouldFocus, ...phase } = syncMonthPhase($.model, context)
       const date = phase.focusedDay
       if (!shouldFocus || date === null) {
-        return $.evolve({ ...phase, shownMonth: context.monthStart })
+        return $.evolve({
+          ...phase,
+          shownMonth: context.monthStart,
+          shownMonths: context.months
+        })
       }
       // Focus the stable root before replacing the day to avoid focus
       // falling to `<body>` and marking an enclosing Field touched.
@@ -465,17 +506,20 @@ export const Calendar = Html.component({
       $.evolve({
         focusedDay: date,
         pendingFocus: null,
-        shownMonth: monthOf($.props)
+        shownMonth: monthOf($.props),
+        shownMonths: monthCount($.props.months)
       }).run(focusDay(date)),
     FoundDirection: ($, { rtl }) => $.evolve({ rtl })
   },
   subscriptions: ({ model, props }) => {
     const monthStart = monthOf(props)
+    const months = monthCount(props.months)
     return [
-      !sameMonth(monthStart, model.shownMonth) &&
+      (!sameMonth(monthStart, model.shownMonth) ||
+        months !== model.shownMonths) &&
       Subscription.make(
         "syncedMonth",
-        [dateKey(monthStart)],
+        [dateKey(monthStart), months],
         () => Stream.make(CalendarMessage.SyncedMonth())
       ),
       model.focused && props.disabled === true && disabledWhileFocused
@@ -487,19 +531,15 @@ export const Calendar = Html.component({
     const readOnly = props.readOnly === true
     const rtl = rightToLeft(p.reads.provider, model.rtl)
     // Keep the focused day mounted until focus moves to the root.
-    const context = contextOf(
-      props,
-      model.focused ? model.shownMonth : monthOf(props)
-    )
+    const context = model.focused
+      ? contextOf(props, model.shownMonth, model.shownMonths)
+      : contextOf(props)
     const { max, min, monthStart, preferred: value, today, weekStartsOn } =
       context
-    const weeks = weeksOfMonth(monthStart, weekStartsOn)
     const weekdays = weekdayNames(props.locale, weekStartsOn)
-    const title = formatMonthTitle(monthStart, props.locale)
-    const phase = syncMonthPhase(model, context, weeks)
-    const tabStop = tabStopOf(phase.focusedDay, context, weeks)
+    const phase = syncMonthPhase(model, context)
+    const tabStop = tabStopOf(phase.focusedDay, context)
     const fullDate = fullDateFormatter(props.locale)
-    const headingId = p.id("heading")
     const isSelected = (date: DateTime.Utc) =>
       value !== null && sameDay(date, value)
     const state = {
@@ -509,7 +549,12 @@ export const Calendar = Html.component({
 
     const step = (months: -1 | 1, label: string) => {
       const stepDisabled = disabled ||
-        !canStepMonth(monthStart, months, min, max)
+        !canStepMonth(
+          months < 0 ? monthStart : context.lastMonth,
+          months,
+          min,
+          max
+        )
       return p.part("button", (b) =>
         b
           .attrs({
@@ -544,8 +589,17 @@ export const Calendar = Html.component({
 
     const dayPart = p.part(
       "button",
-      (b, date: DateTime.Utc, key: string, unavailable: boolean) => {
-        const dayDisabled = disabled || isOutOfRange(date, min, max)
+      (
+        b,
+        date: DateTime.Utc,
+        key: string,
+        unavailable: boolean,
+        gridMonth: DateTime.Utc
+      ) => {
+        // A copy of a day another grid shows stays inert, so the one it
+        // copies owns the ref and the tab stop.
+        const copy = isCopy(context, gridMonth, date)
+        const dayDisabled = disabled || copy || isOutOfRange(date, min, max)
         const isToday = sameDay(date, today)
         const isFocused = !dayDisabled &&
           phase.focused &&
@@ -554,7 +608,7 @@ export const Calendar = Html.component({
         const isTabStop = !dayDisabled &&
           tabStop !== null &&
           sameDay(date, tabStop)
-        return b
+        const day = b
           .attrs({
             type: "button",
             tabindex: isTabStop ? "0" : "-1",
@@ -563,13 +617,13 @@ export const Calendar = Html.component({
             "aria-current": isToday ? "date" : undefined,
             "data-selected": flag(isSelected(date)),
             "data-today": flag(isToday),
-            "data-outside-month": flag(!sameMonth(date, monthStart)),
+            "data-outside-month": flag(!sameMonth(date, gridMonth)),
             "data-unavailable": flag(unavailable),
             "data-disabled": flag(dayDisabled),
             "data-focused": flag(isFocused)
           })
           .disabled(dayDisabled)
-          .ref(CalendarDayRef.at(key))
+        return (copy ? day : day.ref(CalendarDayRef.at(key)))
           .on(
             "click",
             CalendarMessage.ClickedDay({ date, unavailable }),
@@ -591,11 +645,75 @@ export const Calendar = Html.component({
       }
     )
 
+    const cell = View.wrapPart(
+      cellPart,
+      <B extends Keyed<"td">>(
+        { date, element }: {
+          readonly element: B
+          readonly date: DateTime.DateTime
+        }
+      ): ReturnType<B["attr"]> => {
+        const day = toDay(date)
+        return cellPart(element.key(dateKey(day)), day)
+      }
+    )
+
+    const monthParts = (index: number) => {
+      const month = addMonths(monthStart, index)
+      // Keyed by slot, so `aria-live` stays on the same element.
+      const headingId = p.id("heading", index)
+      return {
+        month,
+        title: formatMonthTitle(month, props.locale),
+        weeks: weeksOfMonth(month, weekStartsOn),
+        heading: p.part((b) =>
+          b.attrs({
+            id: headingId,
+            "aria-live": "polite",
+            ...state
+          })
+        ),
+        grid: p.part("table", (b) =>
+          b.attrs({
+            role: "grid",
+            "aria-labelledby": headingId,
+            "aria-disabled": disabled ? "true" : undefined,
+            "aria-readonly": readOnly ? "true" : undefined,
+            ...state
+          })),
+        cell,
+        day: View.wrapPart(
+          dayPart,
+          <B extends Keyed<"button">>(
+            { date, element, unavailable }: {
+              readonly element: B
+              readonly date: DateTime.DateTime
+              readonly unavailable?: boolean | undefined
+            }
+          ): ReturnType<B["attr"]> => {
+            const day = toDay(date)
+            const key = dateKey(day)
+            return dayPart(
+              element.key(key),
+              day,
+              key,
+              unavailable === true,
+              month
+            )
+          }
+        )
+      }
+    }
+
     return {
-      weeks,
+      months: [
+        monthParts(0),
+        ...Array.from(
+          { length: context.months - 1 },
+          (_, index) => monthParts(index + 1)
+        )
+      ] as const,
       weekdays,
-      month: monthStart,
-      title,
       root: p.part((b) => {
         const root = b.attrs({ tabindex: "-1", ...state }).ref(CalendarRootRef)
         return p.reads.provider !== undefined ? root : root.onMount(
@@ -604,55 +722,14 @@ export const Calendar = Html.component({
           )
         )
       }),
-      heading: p.part((b) =>
-        b.attrs({
-          id: headingId,
-          "aria-live": "polite",
-          ...state
-        })
-      ),
       previous: step(-1, "Previous month"),
       next: step(1, "Next month"),
-      grid: p.part("table", (b) =>
-        b.attrs({
-          role: "grid",
-          "aria-labelledby": headingId,
-          "aria-disabled": disabled ? "true" : undefined,
-          "aria-readonly": readOnly ? "true" : undefined,
-          ...state
-        })),
       weekday: View.wrapPart(
         weekdayPart,
         <B extends Keyed<"th">>(
           { element, index }: { readonly element: B; readonly index: number }
         ): ReturnType<B["attr"]> =>
           weekdayPart(element.key(String(index)), index)
-      ),
-      cell: View.wrapPart(
-        cellPart,
-        <B extends Keyed<"td">>(
-          { date, element }: {
-            readonly element: B
-            readonly date: DateTime.DateTime
-          }
-        ): ReturnType<B["attr"]> => {
-          const day = toDay(date)
-          return cellPart(element.key(dateKey(day)), day)
-        }
-      ),
-      day: View.wrapPart(
-        dayPart,
-        <B extends Keyed<"button">>(
-          { date, element, unavailable }: {
-            readonly element: B
-            readonly date: DateTime.DateTime
-            readonly unavailable?: boolean | undefined
-          }
-        ): ReturnType<B["attr"]> => {
-          const day = toDay(date)
-          const key = dateKey(day)
-          return dayPart(element.key(key), day, key, unavailable === true)
-        }
       )
     }
   }

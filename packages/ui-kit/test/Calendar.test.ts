@@ -45,22 +45,23 @@ const ownedDay = {
 
 const makeStandIn = (unavailable: ReadonlySet<string> = new Set()) => ({
   elements: Html,
-  view: (calendar: Parts, h: H) =>
-    calendar.root(
+  view: (calendar: Parts, h: H) => {
+    const [month] = calendar.months
+    return calendar.root(
       consumer(h.div.class("root"), {
         "data-disabled": "x",
         "data-readonly": "x",
         "data-keep": "yes"
       })
     ).children(
-      calendar.heading(
+      month.heading(
         consumer(h.h2.class("heading"), {
           id: "mine",
           "aria-live": "assertive",
           "data-disabled": "x",
           "data-readonly": "x"
         })
-      ).children(calendar.title),
+      ).children(month.title),
       calendar.previous(
         consumer(h.button.class("prev"), {
           type: "submit",
@@ -77,7 +78,7 @@ const makeStandIn = (unavailable: ReadonlySet<string> = new Set()) => ({
           "data-disabled": "x"
         })
       ).children("›"),
-      calendar.grid(
+      month.grid(
         consumer(h.table.class("grid"), {
           role: "presentation",
           "aria-labelledby": "elsewhere",
@@ -101,18 +102,18 @@ const makeStandIn = (unavailable: ReadonlySet<string> = new Set()) => ({
           )
         ),
         h.tbody(
-          ...calendar.weeks.map((week) =>
+          ...month.weeks.map((week) =>
             h.tr(
               ...week.map((date) => {
                 const key = iso(date)
-                return calendar.cell({
+                return month.cell({
                   element: consumer(h.td.class("cell-" + key), {
                     role: "cell",
                     "aria-selected": "mixed"
                   }),
                   date
                 }).children(
-                  calendar.day({
+                  month.day({
                     element: consumer(
                       h.button.class("day-" + key).attr("data-custom", key),
                       ownedDay
@@ -127,6 +128,7 @@ const makeStandIn = (unavailable: ReadonlySet<string> = new Set()) => ({
         )
       )
     )
+  }
 })
 
 const loc = (name: string) => Locator.attr("class", name)
@@ -209,15 +211,17 @@ describe("Calendar", () => {
       )
 
       scene.parts((calendar) => {
-        assert.strictEqual(iso(calendar.month), "2026-11-01")
-        assert.strictEqual(calendar.title, "November 2026")
+        const [month] = calendar.months
+        assert.strictEqual(calendar.months.length, 1)
+        assert.strictEqual(iso(month.month), "2026-11-01")
+        assert.strictEqual(month.title, "November 2026")
         assert.strictEqual(calendar.weekdays.length, 7)
         assert.strictEqual(calendar.weekdays[0]!.long, "Monday")
         assert.strictEqual(calendar.weekdays[6]!.long, "Sunday")
         // Nov 2026 starting Monday: Oct 26 .. Dec 6 (6 weeks)
-        assert.strictEqual(calendar.weeks.length, 6)
-        assert.strictEqual(iso(calendar.weeks[0]![0]!), "2026-10-26")
-        assert.strictEqual(iso(calendar.weeks[5]![6]!), "2026-12-06")
+        assert.strictEqual(month.weeks.length, 6)
+        assert.strictEqual(iso(month.weeks[0]![0]!), "2026-10-26")
+        assert.strictEqual(iso(month.weeks[5]![6]!), "2026-12-06")
       })
 
       const headingId = scene.get(loc("heading")).attrs!.id!
@@ -329,7 +333,7 @@ describe("Calendar", () => {
       fw.parts((cal) => assert.strictEqual(cal.weekdays[0]!.long, "Monday"))
       // Labels use the grid's Gregorian months, in the locale's digits
       const fa = yield* makeScene(baseProps({ locale: "fa-IR" }))
-      fa.parts((cal) => assert.include(cal.title, "۲۰۲۶"))
+      fa.parts((cal) => assert.include(cal.months[0].title, "۲۰۲۶"))
 
       const h = V.makeHelper<never, {}, Html.Elements>({}, Html)
       const p = Story.parts(Calendar, {
@@ -337,6 +341,7 @@ describe("Calendar", () => {
           focusedDay: null,
           focused: false,
           shownMonth: utc("2026-11-01"),
+          shownMonths: 1,
           pendingFocus: null,
           rtl: false
         },
@@ -345,10 +350,10 @@ describe("Calendar", () => {
       assert.throws(() => p.weekday({ element: h.th, index: 7 }))
       assert.throws(() => p.weekday({ element: h.th, index: -1 }))
       assert.throws(() =>
-        p.day({ element: h.div as never, date: utc("2026-11-15") })
+        p.months[0].day({ element: h.div as never, date: utc("2026-11-15") })
       )
       assert.throws(() => p.previous(h.div as never))
-      assert.throws(() => p.grid(h.div as never))
+      assert.throws(() => p.months[0].grid(h.div as never))
     }))
 
   it.effect("emits Picked and RequestedMonth, and moves focus on month change", () =>

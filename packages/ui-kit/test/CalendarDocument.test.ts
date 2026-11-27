@@ -56,19 +56,21 @@ const Page = Html.component({
         },
         view: (calendar) =>
           calendar.root(h.div).children(
-            calendar.grid(h.table).children(
-              h.tbody(
-                ...calendar.weeks.map((week) =>
-                  h.tr(
-                    ...week.map((date) =>
-                      calendar.cell({ element: h.td, date }).children(
-                        calendar.day({
-                          element: h.button.attr(
-                            "id",
-                            DateTime.formatIsoDateUtc(date)
-                          ),
-                          date
-                        })
+            ...calendar.months.map((month) =>
+              month.grid(h.table).children(
+                h.tbody(
+                  ...month.weeks.map((week) =>
+                    h.tr(
+                      ...week.map((date) =>
+                        month.cell({ element: h.td, date }).children(
+                          month.day({
+                            element: h.button.attr(
+                              "id",
+                              DateTime.formatIsoDateUtc(date)
+                            ),
+                            date
+                          })
+                        )
                       )
                     )
                   )
@@ -122,23 +124,25 @@ const FieldPage = Html.component({
             view: (calendar) =>
               calendar.root(field.group(h.div.attr("id", "group"))).children(
                 // Keyed by month, so each month change replaces the grid.
-                calendar.grid(
-                  h.table.key(DateTime.formatIsoDateUtc(calendar.month))
-                ).children(
-                  h.tbody(
-                    ...calendar.weeks.map((week) =>
-                      h.tr(
-                        ...week.map((date) =>
-                          calendar.cell({ element: h.td, date }).children(
-                            calendar.day({
-                              element: field.member(
-                                h.button.attr(
-                                  "id",
-                                  DateTime.formatIsoDateUtc(date)
-                                )
-                              ),
-                              date
-                            })
+                ...calendar.months.map((month) =>
+                  month.grid(
+                    h.table.key(DateTime.formatIsoDateUtc(month.month))
+                  ).children(
+                    h.tbody(
+                      ...month.weeks.map((week) =>
+                        h.tr(
+                          ...week.map((date) =>
+                            month.cell({ element: h.td, date }).children(
+                              month.day({
+                                element: field.member(
+                                  h.button.attr(
+                                    "id",
+                                    DateTime.formatIsoDateUtc(date)
+                                  )
+                                ),
+                                date
+                              })
+                            )
                           )
                         )
                       )
@@ -149,6 +153,60 @@ const FieldPage = Html.component({
           })
       })
     )
+})
+
+const MonthsMessage = UiSchema.TaggedEnum({
+  RequestedMonth: { month: Schema.DateTimeUtc }
+})
+
+const TwoMonths = Html.component({
+  name: "TwoMonths",
+  model: Schema.Struct({ month: Schema.DateTimeUtc }),
+  message: MonthsMessage
+}).make({
+  init: () => ({ month: utc("2026-11-01") }),
+  update: {
+    RequestedMonth: ($, { month }) => $.evolve({ month })
+  },
+  view: (h, model) =>
+    Calendar(h, {
+      props: {
+        value: null,
+        month: model.month,
+        months: 2,
+        today: utc("2026-11-15"),
+        firstDayOfWeek: 1,
+        locale: "en-US"
+      },
+      onEmit: {
+        Picked: () => undefined,
+        RequestedMonth: ({ month }) => MonthsMessage.RequestedMonth({ month })
+      },
+      view: (calendar) =>
+        calendar.root(h.div).children(
+          ...calendar.months.map((month, index) =>
+            month.grid(h.table).children(
+              h.tbody(
+                ...month.weeks.map((week) =>
+                  h.tr(
+                    ...week.map((date) =>
+                      month.cell({ element: h.td, date }).children(
+                        month.day({
+                          element: h.button.attr(
+                            "id",
+                            index + "-" + DateTime.formatIsoDateUtc(date)
+                          ),
+                          date
+                        })
+                      )
+                    )
+                  )
+                )
+              )
+            )
+          )
+        )
+    })
 })
 
 // A browser blurs an element that has focus as it leaves the document.
@@ -217,5 +275,23 @@ describe("Calendar in a document", { concurrent: false }, () => {
       yield* tick
       assert.isNotNull(document.getElementById("2027-02-15"))
       assert.strictEqual(document.activeElement?.id, "apply")
+    }).pipe(Effect.scoped))
+
+  it.effect("keyboard focus crosses grids to the day's own month, not its copy", () =>
+    Effect.gen(function*() {
+      yield* BrowserHost.mountEffect(TwoMonths, {}, yield* container)
+      yield* tick
+      byId("0-2026-11-30").focus()
+      yield* tick
+      keydown("0-2026-11-30", "ArrowRight")
+      yield* tick
+      assert.strictEqual(document.activeElement?.id, "1-2026-12-01")
+
+      byId("1-2026-12-31").focus()
+      yield* tick
+      keydown("1-2026-12-31", "ArrowRight")
+      yield* tick
+      // The window moves to December and January.
+      assert.strictEqual(document.activeElement?.id, "1-2027-01-01")
     }).pipe(Effect.scoped))
 })

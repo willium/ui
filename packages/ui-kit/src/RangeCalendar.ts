@@ -1,15 +1,16 @@
 /**
- * A controlled single-month calendar grid for picking a range of dates, built
- * on `Calendar`. Pass the committed range as `value`, the visible month as
- * `month` and the current day as `today`. Handle `Picked` to update `value`
- * and `RequestedMonth` to update `month`.
+ * A controlled calendar for picking a range of dates, built on `Calendar`,
+ * showing one month or several consecutive months. Pass the committed range
+ * as `value`, the first visible month as `month`, the number of months as
+ * `months` and the current day as `today`. Handle `Picked` to update
+ * `value` and `RequestedMonth` to update `month`.
  *
  * **Anatomy**
  *
  * | Part       | Element    |
  * | :--------- | :--------- |
- * | `root`     | any element, around the header and the grid |
- * | `heading`  | any element, showing `rangeCalendar.title` |
+ * | `root`     | any element, around the header and the grids |
+ * | `heading`  | any element, showing the month's `title` |
  * | `previous` | `<button>` |
  * | `next`     | `<button>` |
  * | `grid`     | `<table>` |
@@ -17,8 +18,9 @@
  * | `cell`     | `<td>` inside the grid body |
  * | `day`      | `<button>` inside each `cell` |
  *
- * The parts take `Calendar`'s arguments and add no markup. The parts object
- * also carries `Calendar`'s `weeks`, `weekdays`, `month` and `title`, and
+ * The parts are `Calendar`'s, with `heading`, `grid`, `cell` and `day` in
+ * each entry of `months`. They take `Calendar`'s arguments and add no
+ * markup. The parts object also carries `Calendar`'s `weekdays` and
  * `anchor`: the first day of a range in progress, or `null`.
  *
  * Inside a `Field`, apply `field.group` to `root`, `field.member` to each
@@ -28,7 +30,8 @@
  *
  * The first press sets the anchor. Until the second press, the range from
  * the anchor to the day last hovered or focused is the preview; `value`
- * stays committed. The second press emits `Picked` with the two days in
+ * stays committed, and spans every shown month. Hovering a disabled day
+ * previews nothing. The second press emits `Picked` with the two days in
  * order. Pressing the anchor again picks that one day. An unavailable day
  * can't be an anchor or an end, but a range may span unavailable days:
  * validate that in the consumer.
@@ -99,16 +102,17 @@
  *         Picked: ({ end, start }) => StayMessage.PickedStay({ start, end }),
  *         RequestedMonth: ({ month }) => StayMessage.RequestedMonth({ month })
  *       },
- *       view: (rangeCalendar) =>
- *         rangeCalendar.root(h.div).children(
- *           rangeCalendar.heading(h.h2).children(rangeCalendar.title),
- *           rangeCalendar.grid(h.table).children(
+ *       view: (rangeCalendar) => {
+ *         const [month] = rangeCalendar.months
+ *         return rangeCalendar.root(h.div).children(
+ *           month.heading(h.h2).children(month.title),
+ *           month.grid(h.table).children(
  *             h.tbody(
- *               ...rangeCalendar.weeks.map((week) =>
+ *               ...month.weeks.map((week) =>
  *                 h.tr(
  *                   ...week.map((date) =>
- *                     rangeCalendar.cell({ element: h.td, date }).children(
- *                       rangeCalendar.day({ element: h.button, date }).children(
+ *                     month.cell({ element: h.td, date }).children(
+ *                       month.day({ element: h.button, date }).children(
  *                         String(DateTime.getPartUtc(date, "day"))
  *                       )
  *                     )
@@ -118,6 +122,7 @@
  *             )
  *           )
  *         )
+ *       }
  *     })
  * })
  *
@@ -140,6 +145,9 @@ import { flag, type Keyed } from "./internal/attributes.ts"
 import {
   CalendarDate,
   CalendarGridPropsFields,
+  isCopy,
+  isOutOfRange,
+  normalizeOptional,
   sameDay,
   toDay
 } from "./internal/calendar.ts"
@@ -151,7 +159,7 @@ import {
  *
  * - `value`: the committed range, or `null`. Both ends are normalized with
  *   `DateTime.removeTime`, and a `start` after `end` is read in order.
- * - The rest are `Calendar`'s: `month`, `today`, `min`, `max`,
+ * - The rest are `Calendar`'s: `month`, `months`, `today`, `min`, `max`,
  *   `firstDayOfWeek`, `locale`, `disabled` and `readOnly`. A disabled or
  *   read-only range calendar sets no anchor and shows no preview.
  *
@@ -299,26 +307,33 @@ export const RangeCalendar = Html.component({
         b.attr("aria-selected", String(inRange(date, selected)))
     )
 
-    const dayPart = p.part("button", (b, date: DateTime.Utc) =>
-      b
-        .attrs({
-          "data-selected": flag(inRange(date, selected)),
-          "data-range-start": flag(
-            shown !== null && sameDay(date, shown.start)
-          ),
-          "data-range-end": flag(shown !== null && sameDay(date, shown.end)),
-          "data-in-range": flag(inRange(date, shown))
-        })
-        .on("mouseenter", () => preview(date))
-        .on("focus", () => preview(date))
-        .on(
-          "keydown",
-          ({ key }) =>
-            key === "Escape" && draft !== null
-              ? RangeCalendarMessage.PressedEscape()
-              : undefined,
-          { preventDefault: true }
-        ))
+    const min = normalizeOptional(props.min)
+    const max = normalizeOptional(props.max)
+
+    // `inert`: a natively disabled day, which a hover doesn't preview.
+    const dayPart = p.part(
+      "button",
+      (b, date: DateTime.Utc, inert: boolean) =>
+        b
+          .attrs({
+            "data-selected": flag(inRange(date, selected)),
+            "data-range-start": flag(
+              shown !== null && sameDay(date, shown.start)
+            ),
+            "data-range-end": flag(shown !== null && sameDay(date, shown.end)),
+            "data-in-range": flag(inRange(date, shown))
+          })
+          .on("mouseenter", () => inert ? undefined : preview(date))
+          .on("focus", () => preview(date))
+          .on(
+            "keydown",
+            ({ key }) =>
+              key === "Escape" && draft !== null
+                ? RangeCalendarMessage.PressedEscape()
+                : undefined,
+            { preventDefault: true }
+          )
+    )
 
     return p.child(Calendar, {
       // Only places the tab stop; the parts below override the selection.
@@ -328,44 +343,56 @@ export const RangeCalendar = Html.component({
         RequestedMonth: ({ month }) =>
           RangeCalendarMessage.RequestedMonth({ month })
       },
-      parts: (calendar) => ({
-        ...calendar,
-        anchor,
-        grid: View.wrapPart(
-          gridPart,
-          <B extends View.PartTarget<"table">>(
-            element: B
-          ): ReturnType<B["attr"]> => gridPart(calendar.grid(element))
-        ),
-        cell: View.wrapPart(
-          cellPart,
-          <B extends Keyed<"td">>(
-            { date, element }: {
-              readonly element: B
-              readonly date: DateTime.DateTime
+      parts: (calendar) => {
+        const visible = {
+          monthStart: calendar.months[0].month,
+          lastMonth: calendar.months[calendar.months.length - 1]!.month
+        }
+        const wrap = (month: typeof calendar.months[0]) => ({
+          ...month,
+          grid: View.wrapPart(
+            gridPart,
+            <B extends View.PartTarget<"table">>(
+              element: B
+            ): ReturnType<B["attr"]> => gridPart(month.grid(element))
+          ),
+          cell: View.wrapPart(
+            cellPart,
+            <B extends Keyed<"td">>(
+              { date, element }: {
+                readonly element: B
+                readonly date: DateTime.DateTime
+              }
+            ): ReturnType<B["attr"]> => {
+              const day = toDay(date)
+              return cellPart(month.cell({ element, date: day }), day)
             }
-          ): ReturnType<B["attr"]> => {
-            const day = toDay(date)
-            return cellPart(calendar.cell({ element, date: day }), day)
-          }
-        ),
-        day: View.wrapPart(
-          dayPart,
-          <B extends Keyed<"button">>(
-            { date, element, unavailable }: {
-              readonly element: B
-              readonly date: DateTime.DateTime
-              readonly unavailable?: boolean | undefined
+          ),
+          day: View.wrapPart(
+            dayPart,
+            <B extends Keyed<"button">>(
+              { date, element, unavailable }: {
+                readonly element: B
+                readonly date: DateTime.DateTime
+                readonly unavailable?: boolean | undefined
+              }
+            ): ReturnType<B["attr"]> => {
+              const day = toDay(date)
+              return dayPart(
+                month.day({ element, date: day, unavailable }),
+                day,
+                isCopy(visible, month.month, day) || isOutOfRange(day, min, max)
+              )
             }
-          ): ReturnType<B["attr"]> => {
-            const day = toDay(date)
-            return dayPart(
-              calendar.day({ element, date: day, unavailable }),
-              day
-            )
-          }
-        )
-      })
+          )
+        })
+        const [first, ...rest] = calendar.months
+        return {
+          ...calendar,
+          anchor,
+          months: [wrap(first), ...rest.map(wrap)] as const
+        }
+      }
     })
   }
 })

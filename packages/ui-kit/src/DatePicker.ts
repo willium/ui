@@ -12,15 +12,15 @@
  * | `positioner` | `<div>`, a manual popover next to the input  |
  * | `popup`      | `<div>` inside the positioner                |
  *
- * The `Calendar`'s parts, `root`, `heading`, `previous`, `next`, `grid`,
- * `weekday`, `cell` and `day`, go inside the popup, as `Calendar`
- * describes. Each part takes the consumer's builder and returns it. `input`
+ * The `Calendar`'s parts, `root`, `previous`, `next`, `weekday` and each
+ * month's `heading`, `grid`, `cell` and `day`, go inside the popup, as
+ * `Calendar` describes. Each part takes the consumer's builder and returns it. `input`
  * adds the `DateField`'s wrapper and hidden form input. No other part adds
  * markup.
  *
  * The parts also carry `open`, `side` and `align`, and the values of
  * `DateField` (`value`, `inputValue`, `pattern`, `disabled`, `readOnly`,
- * `required`) and `Calendar` (`weeks`, `weekdays`, `month`, `title`).
+ * `required`) and `Calendar` (`weekdays` and `months`).
  *
  * The positioner uses a manual popover in the top layer unless
  * `topLayer: false`. It anchors to the input with `side: "bottom"` and
@@ -120,15 +120,19 @@
  *               datePicker.positioner(h.div).children(
  *                 datePicker.popup(h.div.attr("aria-label", "Departure")).children(
  *                   datePicker.root(h.div).children(
- *                     datePicker.heading(h.h2).children(datePicker.title),
- *                     datePicker.grid(h.table).children(
- *                       h.tbody(
- *                         ...datePicker.weeks.map((week) =>
- *                           h.tr(
- *                             ...week.map((date) =>
- *                               datePicker.cell({ element: h.td, date }).children(
- *                                 datePicker.day({ element: h.button, date }).children(
- *                                   String(DateTime.getPartUtc(date, "day"))
+ *                     ...datePicker.months.map((month) =>
+ *                       h.section(
+ *                         month.heading(h.h2).children(month.title),
+ *                         month.grid(h.table).children(
+ *                           h.tbody(
+ *                             ...month.weeks.map((week) =>
+ *                               h.tr(
+ *                                 ...week.map((date) =>
+ *                                   month.cell({ element: h.td, date }).children(
+ *                                     month.day({ element: h.button, date }).children(
+ *                                       String(DateTime.getPartUtc(date, "day"))
+ *                                     )
+ *                                   )
  *                                 )
  *                               )
  *                             )
@@ -173,11 +177,13 @@ import {
   ownStyle
 } from "./internal/attributes.ts"
 import {
+  addMonths,
   CalendarDate,
   CalendarGridPropsFields,
+  inWindow,
   isOutOfRange,
+  monthCount,
   normalizeOptional,
-  sameMonth,
   startOfMonth
 } from "./internal/calendar.ts"
 import { isElement } from "./internal/dom.ts"
@@ -194,9 +200,9 @@ import * as Positioning from "./Positioning.ts"
  *
  * - `value`: the date, any `DateTime`, or `null` for none.
  * - `open`: whether the popup shows. Required: the consumer owns it.
- * - `month`, `today`, `min`, `max`, `firstDayOfWeek`: as `Calendar` takes
- *   them. A typed date outside `min` or `max` emits nothing, and the input
- *   reverts to `value`.
+ * - `month`, `months`, `today`, `min`, `max`, `firstDayOfWeek`: as
+ *   `Calendar` takes them. A typed date outside `min` or `max` emits
+ *   nothing, and the input reverts to `value`.
  * - `locale`: the locale of both the input and the calendar.
  * - `name`, `form`, `required`: as `DateField` takes them.
  * - `disabled`: disables the input, the trigger and the calendar, and
@@ -270,7 +276,8 @@ export type DatePickerChangeReason = typeof DatePickerChangeReason.Type
  *   the reason. A day press emits `Picked`, then `RequestedClose`.
  * - `RequestedMonth`: asks for the calendar to show `month`, the first of
  *   that month. Emitted from the calendar's own navigation, and after a
- *   `Picked` whose date is outside the shown month, so the popup opens on it.
+ *   `Picked` whose date is outside the shown months, so the popup opens on
+ *   it as the first month.
  *
  * @stability experimental
  * @category schemas
@@ -324,7 +331,12 @@ type DatePickerUpdate = Component.Update<
 
 const pick = ($: DatePickerUpdate, date: DateTime.Utc | null) => {
   const picked = $.emit(DatePickerEvents.Picked({ date }))
-  return date === null || sameMonth(date, startOfMonth($.props.month))
+  const monthStart = startOfMonth($.props.month)
+  return date === null ||
+      inWindow({
+        monthStart,
+        lastMonth: addMonths(monthStart, monthCount($.props.months) - 1)
+      }, date)
     ? picked
     : picked.emit(
       DatePickerEvents.RequestedMonth({ month: startOfMonth(date) })
@@ -556,6 +568,7 @@ export const DatePicker = Html.component({
           props: {
             value: props.value,
             month: props.month,
+            months: props.months,
             today: props.today,
             min: props.min,
             max: props.max,

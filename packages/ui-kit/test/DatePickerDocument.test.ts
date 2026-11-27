@@ -92,19 +92,21 @@ const Page = Html.component({
                 datePicker.trigger(h.button.attr("id", "trigger")),
                 datePicker.positioner(h.div.attr("id", "positioner")).children(
                   datePicker.popup(h.div).children(
-                    datePicker.grid(h.table).children(
-                      h.tbody(
-                        ...datePicker.weeks.map((week) =>
-                          h.tr(
-                            ...week.map((date) =>
-                              datePicker.cell({ element: h.td, date }).children(
-                                datePicker.day({
-                                  element: h.button.attr(
-                                    "id",
-                                    DateTime.formatIsoDateUtc(date)
-                                  ),
-                                  date
-                                })
+                    ...datePicker.months.map((month) =>
+                      month.grid(h.table).children(
+                        h.tbody(
+                          ...month.weeks.map((week) =>
+                            h.tr(
+                              ...week.map((date) =>
+                                month.cell({ element: h.td, date }).children(
+                                  month.day({
+                                    element: h.button.attr(
+                                      "id",
+                                      DateTime.formatIsoDateUtc(date)
+                                    ),
+                                    date
+                                  })
+                                )
                               )
                             )
                           )

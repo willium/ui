@@ -65,8 +65,9 @@ describe("DatePicker", () => {
             expect(datePicker.trigger(h.button)).type.toBe<Button<never>>()
             expect(datePicker.positioner(h.div)).type.toBe<Div<never>>()
             expect(datePicker.popup(h.div)).type.toBe<Div<never>>()
-            expect(datePicker.grid(h.table)).type.toBe<Table<never>>()
-            expect(datePicker.weeks).type.toBe<
+            const [month] = datePicker.months
+            expect(month.grid(h.table)).type.toBe<Table<never>>()
+            expect(month.weeks).type.toBe<
               ReadonlyArray<ReadonlyArray<DateTime.Utc>>
             >()
             const input = datePicker.input(

@@ -31,21 +31,20 @@ const standIn = {
       ),
       datePicker.positioner(h.div.class("positioner")).children(
         datePicker.popup(h.div.attrs({ class: "popup", role: "x" })).children(
-          datePicker.grid(h.table.class("grid")).children(
+          datePicker.months[0].grid(h.table.class("grid")).children(
             h.tbody(
-              ...datePicker.weeks.map((week) =>
+              ...datePicker.months[0].weeks.map((week) =>
                 h.tr(
                   ...week.map((date) =>
-                    datePicker.cell({
+                    datePicker.months[0].cell({
                       element: h.td.attr(
                         "data-cell",
                         DateTime.formatIsoDateUtc(date)
                       ),
                       date
                     }).children(
-                      datePicker.day({ element: h.button, date }).children(
-                        DateTime.formatIsoDateUtc(date)
-                      )
+                      datePicker.months[0].day({ element: h.button, date })
+                        .children(DateTime.formatIsoDateUtc(date))
                     )
                   )
                 )

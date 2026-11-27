@@ -94,28 +94,30 @@ describe("Calendar", () => {
         }
       },
       view: (calendar) => {
-        expect(calendar.weeks).type.toBe<
+        // Never empty, so the first month needs no check.
+        const [month] = calendar.months
+        expect(month.weeks).type.toBe<
           ReadonlyArray<ReadonlyArray<DateTime.Utc>>
         >()
         expect(calendar.weekdays).type.toBe<ReadonlyArray<CalendarWeekday>>()
-        expect(calendar.month).type.toBe<DateTime.Utc>()
-        expect(calendar.title).type.toBe<string>()
+        expect(month.month).type.toBe<DateTime.Utc>()
+        expect(month.title).type.toBe<string>()
 
         expect(calendar.root(h.div.children(needsClock))).type.toBe<
           Div<Clock>
         >()
-        expect(calendar.heading(h.h2)).type.toBe<Heading<never>>()
+        expect(month.heading(h.h2)).type.toBe<Heading<never>>()
         expect(calendar.previous(h.button)).type.toBe<Button<never>>()
         expect(calendar.next(h.button)).type.toBe<Button<never>>()
-        expect(calendar.grid(h.table)).type.toBe<Table<never>>()
+        expect(month.grid(h.table)).type.toBe<Table<never>>()
         expect(calendar.weekday({ element: h.th, index: 0 })).type.toBe<
           Th<never>
         >()
-        expect(calendar.cell({ element: h.td, date: utc })).type.toBe<
+        expect(month.cell({ element: h.td, date: utc })).type.toBe<
           Td<never>
         >()
         expect(
-          calendar.day({
+          month.day({
             element: h.button.onMount(NeedsClock()),
             date: utc,
             unavailable: false
@@ -123,7 +125,7 @@ describe("Calendar", () => {
         ).type.toBe<Button<Clock>>()
 
         return calendar.root(h.div).children(
-          calendar.day({ element: h.button.onMount(NeedsClock()), date: utc })
+          month.day({ element: h.button.onMount(NeedsClock()), date: utc })
         )
       }
     })
@@ -147,26 +149,31 @@ describe("Calendar", () => {
       props: { value: null, month: utc, today: utc, firstDayOfWeek: 7 },
       view: () => h.div
     })
+    expect(Calendar).type.not.toBeCallableWith(h, {
+      props: { value: null, month: utc, today: utc, months: "2" },
+      view: () => h.div
+    })
 
     Calendar(h, {
       props: { value: null, month: utc, today: utc },
       view: (calendar) => {
+        const [month] = calendar.months
         expect(calendar.previous).type.not.toBeCallableWith(h.div)
         expect(calendar.next).type.not.toBeCallableWith(h.a)
-        expect(calendar.grid).type.not.toBeCallableWith(h.div)
+        expect(month.grid).type.not.toBeCallableWith(h.div)
         expect(calendar.weekday).type.not.toBeCallableWith({
           element: h.td,
           index: 0
         })
-        expect(calendar.cell).type.not.toBeCallableWith({
+        expect(month.cell).type.not.toBeCallableWith({
           element: h.div,
           date: utc
         })
-        expect(calendar.day).type.not.toBeCallableWith({
+        expect(month.day).type.not.toBeCallableWith({
           element: h.div,
           date: utc
         })
-        expect(calendar.day).type.not.toBeCallableWith(h.button)
+        expect(month.day).type.not.toBeCallableWith(h.button)
         return calendar.root(h.div)
       }
     })

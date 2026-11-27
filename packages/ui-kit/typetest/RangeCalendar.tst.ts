@@ -60,11 +60,13 @@ describe("RangeCalendar", () => {
         RequestedMonth: () => undefined
       },
       view: (rangeCalendar) => {
+        const [month] = rangeCalendar.months
         expect(rangeCalendar.anchor).type.toBe<DateTime.Utc | null>()
-        expect(rangeCalendar.cell({ element: h.td, date: utc })).type.toBe<
+        expect(month.month).type.toBe<DateTime.Utc>()
+        expect(month.cell({ element: h.td, date: utc })).type.toBe<
           Td<never>
         >()
-        const day = rangeCalendar.day({
+        const day = month.day({
           element: h.button.onMount(NeedsClock()),
           date: utc,
           unavailable: true
@@ -85,12 +87,13 @@ describe("RangeCalendar", () => {
     RangeCalendar(h, {
       props: { value: null, month: utc, today: utc },
       view: (rangeCalendar) => {
-        expect(rangeCalendar.grid).type.not.toBeCallableWith(h.div)
-        expect(rangeCalendar.cell).type.not.toBeCallableWith({
+        const [month] = rangeCalendar.months
+        expect(month.grid).type.not.toBeCallableWith(h.div)
+        expect(month.cell).type.not.toBeCallableWith({
           element: h.div,
           date: utc
         })
-        expect(rangeCalendar.day).type.not.toBeCallableWith({
+        expect(month.day).type.not.toBeCallableWith({
           element: h.div,
           date: utc
         })
