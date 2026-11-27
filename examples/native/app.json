@@ -1,0 +1,16 @@
+{
+  "expo": {
+    "name": "Effect UI Native",
+    "slug": "effect-ui-native",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "android": {
+      "package": "dev.effect.ui.example"
+    },
+    "ios": {
+      "bundleIdentifier": "dev.effect.ui.example"
+    }
+  }
+}

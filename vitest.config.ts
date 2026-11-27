@@ -90,6 +90,7 @@ export default defineConfig({
       ...project("@effect/ui-opentui", "packages/ui-opentui", true, {
         test: { execArgv: ffi }
       }),
+      ...project("@effect/ui-native", "packages/ui-native"),
       ...example("auth"),
       ...example("canvas-art"),
       ...example("counter"),

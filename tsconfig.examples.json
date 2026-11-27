@@ -11,6 +11,7 @@
     { "path": "examples/file-preview" },
     { "path": "examples/interrupting-commands" },
     { "path": "examples/launch" },
+    { "path": "examples/native" },
     { "path": "examples/routing" },
     { "path": "examples/snake" },
     { "path": "examples/snake-tui" },

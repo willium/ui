@@ -36,7 +36,10 @@
       "@effect/ui-opentui/testing": [
         "./packages/ui-opentui/src/testing/index.ts"
       ],
-      "@effect/ui-opentui/*": ["./packages/ui-opentui/src/*.ts"]
+      "@effect/ui-opentui/*": ["./packages/ui-opentui/src/*.ts"],
+      "@effect/ui-native": ["./packages/ui-native/src/index.ts"],
+      "@effect/ui-native/node": ["./packages/ui-native/src/node/index.ts"],
+      "@effect/ui-native/*": ["./packages/ui-native/src/*.ts"]
     },
     "plugins": [{
       "name": "@effect/language-service",

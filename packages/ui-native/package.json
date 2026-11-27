@@ -1,0 +1,100 @@
+{
+  "name": "@effect/ui-native",
+  "type": "module",
+  "version": "0.0.0",
+  "license": "MIT",
+  "description": "React Native vocabulary and Fabric host for @effect/ui, without React",
+  "homepage": "https://effect.website",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Effect-TS/ui.git",
+    "directory": "packages/ui-native"
+  },
+  "bugs": {
+    "url": "https://github.com/Effect-TS/ui/issues"
+  },
+  "tags": [
+    "typescript",
+    "ui",
+    "react-native",
+    "expo",
+    "native",
+    "effect"
+  ],
+  "keywords": [
+    "typescript",
+    "ui",
+    "react-native",
+    "expo",
+    "native",
+    "effect"
+  ],
+  "sideEffects": [],
+  "imports": {
+    "#dev": {
+      "production": "./src/internal/devOff.ts",
+      "default": "./src/internal/devOn.ts"
+    }
+  },
+  "exports": {
+    "./package.json": "./package.json",
+    ".": "./src/index.ts",
+    "./node": "./src/node/index.ts",
+    "./*": "./src/*.ts",
+    "./internal/*": null,
+    "./index": null,
+    "./*/index": null
+  },
+  "files": [
+    "src/**/*.ts",
+    "dist/**/*.js",
+    "dist/**/*.js.map",
+    "dist/**/*.d.ts",
+    "dist/**/*.d.ts.map",
+    "AGENTS.md",
+    "CLAUDE.md",
+    "ai-docs/**/*"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true,
+    "imports": {
+      "#dev": {
+        "production": "./dist/internal/devOff.js",
+        "default": "./dist/internal/devOn.js"
+      }
+    },
+    "exports": {
+      "./package.json": "./package.json",
+      ".": "./dist/index.js",
+      "./node": "./dist/node/index.js",
+      "./*": "./dist/*.js",
+      "./internal/*": null,
+      "./index": null,
+      "./*/index": null
+    }
+  },
+  "scripts": {
+    "codegen": "effect-utils codegen",
+    "build": "tsc -b tsconfig.json && pnpm babel",
+    "babel": "babel dist --plugins annotate-pure-calls --out-dir dist --source-maps",
+    "check": "tsc -b tsconfig.json"
+  },
+  "peerDependencies": {
+    "@effect/ui": "workspace:^",
+    "effect": "^4.1.4",
+    "react-native": ">=0.88.0",
+    "vite": "^8.0.0"
+  },
+  "peerDependenciesMeta": {
+    "vite": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@effect/ui": "workspace:^",
+    "@types/node": "^26.6.10",
+    "effect": "^4.1.6",
+    "vite": "^8.3.6"
+  }
+}
