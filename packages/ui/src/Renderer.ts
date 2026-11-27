@@ -180,6 +180,14 @@ export interface HostEvents<Node> {
  * the request, and the flush runs as any other. The first mount never calls
  * it.
  *
+ * `hot: true` lets a hot-reload runtime swap the code of a component mounted
+ * on the host without losing its state, as Vite's does in the browser. In
+ * development, `mount` registers its root with the hook at
+ * `globalThis[Symbol.for("@effect/ui/hot/swap")]`, which takes the first
+ * and the next exports of a module and the names of its components, swaps
+ * them in place and returns `true`, or returns `false` when the change
+ * needs a reload. In production it does nothing.
+ *
  * @stability experimental
  * @category models
  * @since 0.1.0
@@ -240,6 +248,7 @@ export interface Host<Node> {
   readonly unmounting?:
     | ((container: Node, nodes: ReadonlyArray<Node>) => void)
     | undefined
+  readonly hot?: boolean | undefined
 }
 
 /**

@@ -133,7 +133,8 @@ const stateOf = (view: Window): WindowState => {
       pending: undefined,
       scroll: undefined,
       saveHook: () => saveWindow(view, made),
-      swapHook: (first, next, names) => swap(made, first, next, names),
+      swapHook: (first, next, names) =>
+        swap(made.roots.keys(), first, next, names),
       claim: () => claimHooks(view, made)
     }
     states.set(view, state = made)
@@ -315,7 +316,7 @@ const keepsChildren = (
 }
 
 const swap = (
-  state: WindowState,
+  roots: Iterable<Kernel.Instance>,
   first: Exports,
   next: Exports,
   names: ReadonlyArray<string>
@@ -332,7 +333,7 @@ const swap = (
   }
   const resolve = (component: unknown) => firstOf.get(component) ?? component
   const mounted = new Set<Kernel.Instance>()
-  for (const root of state.roots.keys()) instancesIn(root, mounted)
+  for (const root of roots) instancesIn(root, mounted)
   const found: Array<Kernel.Instance> = []
   for (const inst of mounted) {
     const to = pairs.get(inst.component)
@@ -465,6 +466,38 @@ export const open = (
       if (instance !== undefined) windowState.roots.delete(instance)
       instance = undefined
       if (windowState.roots.size === 0) releaseHooks(view, windowState)
+    }
+  }
+}
+
+// Roots that `Renderer.mount` placed on a host with `hot: true`, such as a
+// native one. Their hot-reload runtime calls the swap hook on `globalThis`.
+const hostRoots = new Set<Kernel.Instance>()
+
+const hostSwap: WindowState["swapHook"] = (first, next, names) =>
+  swap(hostRoots, first, next, names)
+
+export const openHost = (): runtime.HotSession | undefined => {
+  let instance: Kernel.Instance | undefined
+  const hooks = globalThis as unknown as Record<symbol, unknown>
+  return {
+    hasSnapshot: false,
+    init: () => undefined,
+    restored: () => false,
+    hold: () => undefined,
+    attach: (inst) => {
+      instance = inst
+      hostRoots.add(inst)
+      hooks[swapKey] ??= hostSwap
+    },
+    flushed: () => {},
+    clear: () => {},
+    detach: () => {
+      if (instance !== undefined) hostRoots.delete(instance)
+      instance = undefined
+      if (hostRoots.size === 0 && hooks[swapKey] === hostSwap) {
+        delete hooks[swapKey]
+      }
     }
   }
 }

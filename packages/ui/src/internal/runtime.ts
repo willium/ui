@@ -1,6 +1,7 @@
 /**
  * @internal
  */
+import * as hotSessions from "#hot"
 import * as Cause from "effect/Cause"
 import * as Clock from "effect/Clock"
 import * as Context from "effect/Context"
@@ -369,6 +370,7 @@ export type MakeDom = (
 
 interface HostInput {
   readonly elements: ReadonlyArray<string> | "any"
+  readonly hot?: boolean | undefined
   readonly make: (
     container: unknown,
     ownsHead: boolean,
@@ -383,6 +385,7 @@ const fromRenderer = (ctx: Context.Context<any>): HostInput => {
   const host = Context.get(ctx, services.Renderer).host
   return {
     elements: host.elements,
+    hot: host.hot,
     make: (container, ownsHead, step) => {
       const dom = domHost.doms.get(host)?.make(container, {
         head: ownsHead,
@@ -521,7 +524,8 @@ const start = (
     : messageLog.recorder(logService, clock, session, component.definition.name)
   let initCommands: ReadonlyArray<unknown> | undefined
   const hydrate = options?.hydrate
-  const hot = options?.hot
+  const hot = options?.hot ??
+    (hostInput.hot === true ? hotSessions.openHost() : undefined)
   const record: Kernel.Recorder = (inst, draft) => {
     if (initCommands !== undefined && draft._tag === "Mounted") {
       draft = { ...draft, commands: initCommands }
