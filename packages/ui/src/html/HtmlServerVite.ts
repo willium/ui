@@ -29,8 +29,10 @@
  * the `base` of `layerHttp` and `BrowserRouter.layer`. `prerender` paths
  * are relative to the base: `"/about"` is requested as `"/docs/about"` and
  * written to `about.html`. They're read before the entry's Layer is built,
- * so routes printed for them don't carry the base yet. A relative or
- * full-URL `base` keeps the routes at the root.
+ * so routes printed for them don't carry the base yet. A relative `base`
+ * keeps the routes at the root. So does a full-URL one in a build, but in
+ * dev Vite's `BASE_URL` is its path, such as `"/static/"`, and the routes
+ * are under it.
  *
  * **Gotchas**
  *
@@ -112,6 +114,7 @@ interface OutputFile {
 
 interface DevServer {
   readonly config: {
+    readonly base: string
     readonly root: string
     readonly logger: { error(message: string): void }
   }
@@ -135,7 +138,6 @@ interface DevServer {
 
 interface Environment {
   readonly config: {
-    readonly base: string
     readonly root: string
     readonly cacheDir: string
     readonly build: { readonly outDir: string; readonly watch?: unknown }
@@ -152,6 +154,8 @@ interface ServerModule {
   readonly handler: (request: Request) => Promise<Response>
   readonly dispose: () => Promise<void>
   readonly prerender: () => Promise<ReadonlyArray<string>>
+  /** `import.meta.env.BASE_URL`, the base the entry routes with. */
+  readonly base: string
 }
 
 const documentId = "virtual:@effect/ui/document"
@@ -215,6 +219,7 @@ export const plugin = (options: Options): Plugin => {
           `let web`,
           `export const handler = (request) => (web ??= toWebHandler(entry.default, { disableLogger: true })).handler(request)`,
           `export const dispose = async () => web?.dispose()`,
+          `export const base = import.meta.env.BASE_URL`,
           `export const prerender = async () => isEffect(entry.prerender) ? runPromise(entry.prerender) : entry.prerender ?? []`
         ].join("\n")
       }
@@ -328,9 +333,13 @@ export const plugin = (options: Options): Plugin => {
         await Promise.all(disposing)
       })
 
+      const { base } = server.config
       // Returned, so it runs after Vite's own middlewares.
       return () => {
         server.middlewares.use((request, response, next) => {
+          // In middleware mode, Vite passes on requests outside its base.
+          const url = originalUrl(request)
+          if (!`${url.split(/[?#]/)[0]}/`.startsWith(base)) return next()
           if (closing) {
             response.statusCode = 503
             response.end()
@@ -349,10 +358,6 @@ export const plugin = (options: Options): Plugin => {
       }
       const { cacheDir, root } = ssr.config
       const outDir = path.resolve(root, client.config.build.outDir)
-      // Like `Route`, a relative or full-URL base keeps the pages at the root.
-      const base = client.config.base.startsWith("/")
-        ? client.config.base.replace(/\/$/, "")
-        : ""
       await builder.build(client)
       templateFile = path.join(outDir, "index.html")
       const output = (await builder.build(ssr)) as {
@@ -371,13 +376,18 @@ export const plugin = (options: Options): Plugin => {
         const module = (await import(
           pathToFileURL(path.join(dir, entry.fileName)).href
         )) as ServerModule
+        // As in `Route`, a relative or full-URL base keeps the pages at the
+        // root, and Home keeps the base's trailing slash, or lack of one.
+        const base = /^\/(?!\/)/.test(module.base) ? module.base : "/"
         try {
           // Settled, so no render outlives the handler when one fails.
           const results = await Promise.allSettled(
             (await module.prerender()).map(async (url) => {
               const target = new URL(url, origin)
               const request = new URL(target)
-              request.pathname = base + target.pathname
+              request.pathname = target.pathname === "/"
+                ? base
+                : base.replace(/\/$/, "") + target.pathname
               const response = await module.handler(new Request(request))
               await write(
                 outDir,
@@ -433,6 +443,11 @@ const write = async (
   await fs.writeFile(target, content)
 }
 
+/** The URL with Vite's `base`, which Vite strips from `url`. */
+const originalUrl = (request: Http.IncomingMessage): string =>
+  (request as { readonly originalUrl?: string }).originalUrl ?? request.url ??
+    "/"
+
 const toRequest = (
   request: Http.IncomingMessage,
   signal: AbortSignal
@@ -447,12 +462,7 @@ const toRequest = (
   const method = request.method ?? "GET"
   const protocol = "encrypted" in request.socket ? "https" : "http"
   return new Request(
-    // Vite strips its `base` from `url`, and the entry matches with it.
-    new URL(
-      (request as { readonly originalUrl?: string }).originalUrl ??
-        request.url ?? "/",
-      `${protocol}://${request.headers.host}`
-    ),
+    new URL(originalUrl(request), `${protocol}://${request.headers.host}`),
     {
       method,
       headers,

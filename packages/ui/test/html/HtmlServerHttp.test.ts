@@ -172,14 +172,20 @@ describe("HtmlServerHttp.layerHttp", { concurrent: false }, () => {
     assert.strictEqual(trailing.status, 301)
     assert.strictEqual(trailing.headers.get("location"), "/docs/people/1")
 
-    // A reloaded dev entry is built before the one it replaces is disposed.
-    const [first, second] = [docs, docs].map((layer) =>
+    // A reloaded dev entry is built before the one it replaces is disposed,
+    // and a subset shares the union's base.
+    const subset = layerHttp(App, {
+      routes: AppRoute.subset(["Home", "Person", "Search", "Slow", "NotFound"]),
+      document,
+      base: "/next/"
+    }).pipe(Layer.provide(People.layer))
+    const [first, second] = [docs, subset].map((layer) =>
       HttpRouter.toWebHandler(layer, { disableLogger: true })
     )
     await first!.handler(new Request("http://localhost/docs/"))
-    await second!.handler(new Request("http://localhost/docs/"))
+    await second!.handler(new Request("http://localhost/next/"))
     await first!.dispose()
-    assert.strictEqual(AppRoute.base(), "/docs/")
+    assert.strictEqual(AppRoute.base(), "/next/")
     await second!.dispose()
     assert.strictEqual(AppRoute.base(), "")
   })

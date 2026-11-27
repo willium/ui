@@ -7,12 +7,23 @@ import * as Effect from "effect/Effect"
 import type * as Scope from "effect/Scope"
 import type * as Route from "../Route.ts"
 
-interface Entry {
-  readonly base: string
+/**
+ * The base a union shares with its subsets.
+ *
+ * @internal
+ */
+export interface Ref {
+  value: string
+  /** The base from before the first open scope, then one per open scope. */
+  stack?: Array<{ readonly value: string }> | undefined
 }
 
-/** Each union's base from before its first open scope, then one per open scope. */
-const stacks = new WeakMap<Route.AnyUnion, Array<Entry>>()
+/**
+ * Each union's `Ref`, registered when it is built.
+ *
+ * @internal
+ */
+export const refs = new WeakMap<object, Ref>()
 
 /**
  * Sets the base of `routes` until the Scope closes. Scopes can close in any
@@ -27,15 +38,15 @@ export const scoped = (
 ): Effect.Effect<void, never, Scope.Scope> =>
   Effect.asVoid(Effect.acquireRelease(
     Effect.sync(() => {
-      const stack = stacks.get(routes) ?? [{ base: routes.base() }]
-      stacks.set(routes, stack)
-      const entry: Entry = { base }
-      stack.push(entry)
+      const ref = refs.get(routes)!
+      const stack = ref.stack ??= [{ value: ref.value }]
       routes.setBase(base)
+      const entry = { value: ref.value }
+      stack.push(entry)
       return () => {
         stack.splice(stack.indexOf(entry), 1)
-        routes.setBase(stack.at(-1)!.base)
-        if (stack.length === 1) stacks.delete(routes)
+        ref.value = stack.at(-1)!.value
+        if (stack.length === 1) ref.stack = undefined
       }
     }),
     (release) => Effect.sync(release)

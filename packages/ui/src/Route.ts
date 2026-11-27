@@ -75,6 +75,7 @@ import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
 import type * as Command from "./Command.ts"
+import { type Ref as BaseRef, refs as baseRefs } from "./internal/base.ts"
 import { decodeComponent } from "./internal/url.ts"
 
 /**
@@ -733,7 +734,7 @@ const printerOf = (
 const build = (
   routes: Record<string, Any>,
   redirects: ReadonlyArray<Redirect>,
-  baseRef: { value: string }
+  baseRef: BaseRef
 ): any => {
   const cases: Record<string, Schema.Struct.Fields> = {}
   const entries: Array<Entry> = []
@@ -930,6 +931,7 @@ const build = (
     const make = union.cases[tag]!.make
     result[tag] = (args?: object) => make((args ?? {}) as any)
   }
+  baseRefs.set(result, baseRef)
   return result
 }
 

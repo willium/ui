@@ -2,6 +2,8 @@ import { plugin } from "@effect/ui/html/HtmlServerVite"
 import { describe, expect, it, vi } from "@effect/vitest"
 import { once } from "node:events"
 import * as fs from "node:fs/promises"
+import { createServer as createHttpServer } from "node:http"
+import type { AddressInfo } from "node:net"
 import * as os from "node:os"
 import * as path from "node:path"
 import {
@@ -95,13 +97,22 @@ describe("HtmlServerVite.plugin", () => {
   it(
     "serves dev SSR under a non-root Vite base with single-prefixed links and assets",
     async () => {
+      // In middleware mode, Vite passes requests outside the base on.
       const server = await createServer(
-        config({ base: "/docs/", server: { port: 0, strictPort: false } })
+        config({ base: "/docs/", server: { middlewareMode: true, ws: false } })
       )
-      await server.listen()
+      const http = createHttpServer((request, response) =>
+        server.middlewares(request, response, () => {
+          response.statusCode = 418
+          response.end("fallback")
+        })
+      )
+      http.listen(0)
+      await once(http, "listening")
       try {
-        const origin = server.resolvedUrls!.local[0]!
-        const get = (url: string) => fetch(new URL(url, origin))
+        const { port } = http.address() as AddressInfo
+        const get = (url: string) =>
+          fetch(new URL(url, `http://localhost:${port}`))
 
         const person = await get("/docs/people/1")
         expect(person.status).toBe(200)
@@ -118,12 +129,11 @@ describe("HtmlServerVite.plugin", () => {
         expect(home.status).toBe(200)
         expect(await home.text()).toContain("<h1>Home</h1>")
 
-        const outside = await get("/people/1")
-        expect(outside.status).toBe(404)
-        const outsideHtml = await outside.text()
-        expect(outsideHtml).not.toContain("Bio of person 1")
-        expect(outsideHtml).not.toContain("<h1>Not found</h1>")
+        const outside = await get("/docs-other/people/1")
+        expect(outside.status).toBe(418)
+        expect(await outside.text()).toBe("fallback")
       } finally {
+        http.close()
         await server.close()
       }
     },
@@ -138,7 +148,7 @@ describe("HtmlServerVite.plugin", () => {
       )
       try {
         const builder = await createBuilder(
-          config({ base: "/docs/", build: { outDir, emptyOutDir: true } })
+          config({ base: "/docs", build: { outDir, emptyOutDir: true } })
         )
         await builder.buildApp()
         const page = (file: string) =>
@@ -157,7 +167,7 @@ describe("HtmlServerVite.plugin", () => {
 
         const person = await page("people/1.html")
         expect(person).toContain("<p id=\"bio\">Bio of person 1</p>")
-        expect(person).toContain("href=\"/docs/\"")
+        expect(person).toContain("href=\"/docs\"")
         expect(person).not.toContain("/docs/docs/")
 
         expect(await page("404.html")).toContain("<h1>Not found</h1>")
